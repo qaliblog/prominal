@@ -1,20 +1,14 @@
 # prominal
-<<<<<<< HEAD
-A terminal emu
-=======
 
-A new Flutter project.
+Terminal emulator app built with Flutter.
 
-## Getting Started
+## Local development
 
-This project is a starting point for a Flutter application.
+- Install Flutter SDK and enable desired platforms.
+- Run: `flutter pub get`
+- Test: `flutter test`
+- Run (Linux): `flutter run -d linux`
 
-A few resources to get you started if this is your first Flutter project:
+## CI
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
->>>>>>> f61d316 (Initial commit)
+GitHub Actions workflow builds Android APK and Linux bundle on push/PR to `main`.

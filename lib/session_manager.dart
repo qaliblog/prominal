@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
@@ -48,7 +49,7 @@ class SessionManager extends ChangeNotifier {
     String? workingDirectory,
     String? title,
   }) async {
-    print("SessionManager: Creating session with command: \${command.join(' ')}");
+    print("SessionManager: Creating session with command: ${command.join(' ')}");
     
     // If the first command is proot, try running it through shell as fallback
     List<String> actualCommand = command;
@@ -57,19 +58,37 @@ class SessionManager extends ChangeNotifier {
       print("SessionManager: Attempting proot session with direct execution");
     }
     
+    final bool isProotInvocation = actualCommand.first.contains('proot');
+
+    // Environment differs on Android vs desktop
+    final Map<String, String> env = Platform.isAndroid
+        ? (isProotInvocation
+            ? _envManager.getProotEnvironment()
+            : {
+                'TERM': 'xterm-256color',
+                'HOME': _envManager.homePath,
+                'PREFIX': _envManager.usrPath,
+                'PATH': '${_envManager.usrPath}/bin:/system/bin',
+                'LD_LIBRARY_PATH': '${_envManager.usrPath}/lib',
+                'PROMINAL_VERSION': '1.0',
+                'LANG': 'en_US.UTF-8',
+              })
+        : {
+            ...Platform.environment,
+            'TERM': 'xterm-256color',
+          };
+
+    // Working directory sensible default
+    final String cwd = workingDirectory ??
+        (Platform.isWindows
+            ? (Platform.environment['USERPROFILE'] ?? _envManager.homePath)
+            : (Platform.environment['HOME'] ?? _envManager.homePath));
+    
     final pty = await PseudoTerminal.start(
       actualCommand.first,
       actualCommand.length > 1 ? actualCommand.sublist(1) : [],
-      workingDirectory: workingDirectory ?? _envManager.homePath,
-      environment: {
-        'TERM': 'xterm-256color',
-        'HOME': _envManager.homePath,
-        'PREFIX': _envManager.usrPath,
-        'PATH': '\${_envManager.usrPath}/bin:/system/bin',
-        'LD_LIBRARY_PATH': '\${_envManager.usrPath}/lib',
-        'PROMINAL_VERSION': '1.0',
-        'LANG': 'en_US.UTF-8',
-      },
+      workingDirectory: cwd,
+      environment: env,
     );
 
     final terminal = Terminal(maxLines: 10000);
@@ -79,15 +98,15 @@ class SessionManager extends ChangeNotifier {
         .cast<List<int>>()
         .transform(const Utf8Decoder())
         .listen((data) {
-          print("SessionManager: Received output: \${data}");
+          print("SessionManager: Received output: ${data}");
           terminal.write(data);
         }, onError: (error) {
-          print("SessionManager: Output error: \${error}");
+          print("SessionManager: Output error: ${error}");
         });
 
     // Encode the terminal's String output into bytes for the PTY.
     terminal.onOutput = (data) {
-      print("SessionManager: Sending input: \${data}");
+      print("SessionManager: Sending input: ${data}");
       pty.write(data);
     };
 
@@ -100,17 +119,17 @@ class SessionManager extends ChangeNotifier {
       id: sessionId,
       terminal: terminal,
       pty: pty,
-      title: title ?? 'Session \${sessionId}',
+      title: title ?? 'Session ${sessionId}',
     );
 
     pty.exitCode.then((code) async {
-      print("SessionManager: Session \${sessionId} exited with code: \${code}");
+      print("SessionManager: Session ${sessionId} exited with code: ${code}");
       final index = _sessions.indexWhere((s) => s.id == sessionId);
       if (index != -1) {
         final session = _sessions[index];
         session.terminal
-            .write('\r\n\r\n[Process completed with exit code: \${code}]');
-        session.title = '[Exited] \${session.title}';
+            .write('\r\n\r\n[Process completed with exit code: ${code}]');
+        session.title = '[Exited] ${session.title}';
         notifyListeners();
       }
       
@@ -121,13 +140,13 @@ class SessionManager extends ChangeNotifier {
         await _createProotSessionWithShell(command);
       }
     }).catchError((error) {
-      print("SessionManager: Session \${sessionId} error: \${error}");
+      print("SessionManager: Session ${sessionId} error: ${error}");
     });
 
     _sessions.add(session);
     _activeSessionIndex = _sessions.length - 1;
 
-    print("Created new session (ID: \${sessionId}) with command: \${actualCommand.join(' ')}");
+    print("Created new session (ID: ${sessionId}) with command: ${actualCommand.join(' ')}");
     notifyListeners();
   }
   
@@ -141,16 +160,13 @@ class SessionManager extends ChangeNotifier {
     final pty = await PseudoTerminal.start(
       shellCommand.first,
       shellCommand.length > 1 ? shellCommand.sublist(1) : [],
-      workingDirectory: _envManager.homePath,
-      environment: {
-        'TERM': 'xterm-256color',
-        'HOME': _envManager.homePath,
-        'PREFIX': _envManager.usrPath,
-        'PATH': '\${_envManager.usrPath}/bin:/system/bin',
-        'LD_LIBRARY_PATH': '\${_envManager.usrPath}/lib',
-        'PROMINAL_VERSION': '1.0',
-        'LANG': 'en_US.UTF-8',
-      },
+      workingDirectory: Platform.environment['HOME'] ?? _envManager.homePath,
+      environment: Platform.isAndroid
+          ? _envManager.getProotEnvironment()
+          : {
+              ...Platform.environment,
+              'TERM': 'xterm-256color',
+            },
     );
 
     final terminal = Terminal(maxLines: 10000);
@@ -159,14 +175,14 @@ class SessionManager extends ChangeNotifier {
         .cast<List<int>>()
         .transform(const Utf8Decoder())
         .listen((data) {
-          print("SessionManager: Shell session output: \${data}");
+          print("SessionManager: Shell session output: ${data}");
           terminal.write(data);
         }, onError: (error) {
-          print("SessionManager: Shell session error: \${error}");
+          print("SessionManager: Shell session error: ${error}");
         });
 
     terminal.onOutput = (data) {
-      print("SessionManager: Shell session input: \${data}");
+      print("SessionManager: Shell session input: ${data}");
       pty.write(data);
     };
 
@@ -183,23 +199,23 @@ class SessionManager extends ChangeNotifier {
     );
 
     pty.exitCode.then((code) {
-      print("SessionManager: Shell session \${sessionId} exited with code: \${code}");
+      print("SessionManager: Shell session ${sessionId} exited with code: ${code}");
       final index = _sessions.indexWhere((s) => s.id == sessionId);
       if (index != -1) {
         final session = _sessions[index];
         session.terminal
-            .write('\r\n\r\n[Shell session completed with exit code: \${code}]');
+            .write('\r\n\r\n[Shell session completed with exit code: ${code}]');
         session.title = '[Exited]  [Shell session]';
         notifyListeners();
       }
     }).catchError((error) {
-      print("SessionManager: Shell session \${sessionId} error: \${error}");
+      print("SessionManager: Shell session ${sessionId} error: ${error}");
     });
 
     _sessions.add(session);
     _activeSessionIndex = _sessions.length - 1;
 
-    print("Created shell session (ID: \${sessionId})");
+    print("Created shell session (ID: ${sessionId})");
     notifyListeners();
   }
 
