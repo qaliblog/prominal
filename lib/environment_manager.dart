@@ -60,6 +60,10 @@ class EnvironmentManager {
   
   /// Check if the environment setup is complete
   bool isSetupComplete() {
+    // Android requires a one-time proot/rootfs setup. Desktop platforms use the host shell.
+    if (!Platform.isAndroid) {
+      return true;
+    }
     final setupFlag = File('${_appDataPath}/$_setupFlagFile');
     return setupFlag.existsSync();
   }
@@ -78,21 +82,17 @@ class EnvironmentManager {
   
   /// Setup the complete environment
   Future<void> setupEnvironment() async {
+    // Only Android needs the proot/rootfs bootstrap. Skip on desktop.
+    if (!Platform.isAndroid) {
+      return;
+    }
+
     print('EnvironmentManager: Starting environment setup...');
-    
     try {
-      // Step 1: Extract proot binary and libraries
       await _extractProotAndLibs();
-      
-      // Step 2: Extract Debian rootfs in background
       await _extractRootfsInBackground();
-      
-      // Step 3: Set up permissions
       await _setupPermissions();
-      
-      // Step 4: Create setup completion flag
       await _createSetupFlag();
-      
       print('EnvironmentManager: Environment setup completed successfully');
     } catch (e) {
       print('EnvironmentManager: Setup failed: $e');
@@ -264,13 +264,28 @@ class EnvironmentManager {
     await flagFile.writeAsString('Setup completed at ${DateTime.now().toIso8601String()}');
   }
   
-  /// Get the initial command for setup
+  /// Get the initial command for the interactive shell
   List<String> getInitialCommand() {
-    return getProotCommandWithFallback(
-      rootfsPath: _usrPath,
-      shellPath: '/bin/bash',
-      shellArgs: ['--login'],
-    );
+    // On Android, launch the Debian environment via proot.
+    if (Platform.isAndroid) {
+      return getProotCommandWithFallback(
+        rootfsPath: _usrPath,
+        shellPath: '/bin/bash',
+        shellArgs: ['--login'],
+      );
+    }
+
+    // On desktop platforms, launch the host system shell directly.
+    if (Platform.isWindows) {
+      // Prefer PowerShell if available, otherwise fallback to cmd
+      return ['powershell.exe'];
+    }
+
+    // macOS/Linux/iOS default to a POSIX shell
+    final String shellPath = File('/bin/zsh').existsSync()
+        ? '/bin/zsh'
+        : (File('/bin/bash').existsSync() ? '/bin/bash' : '/bin/sh');
+    return [shellPath, '--login'];
   }
   
   /// Get proot command with fallback options

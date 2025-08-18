@@ -19,10 +19,12 @@ void main() async {
 
 class ProminalApp extends StatelessWidget {
   final EnvironmentManager environmentManager;
+  final bool autoStartSession;
 
   const ProminalApp({
     Key? key,
     required this.environmentManager,
+    this.autoStartSession = true,
   }) : super(key: key);
 
   @override
@@ -36,17 +38,22 @@ class ProminalApp extends StatelessWidget {
       ),
       debugShowCheckedModeBanner: false,
       // The HomePage is where the main logic resides.
-      home: HomePage(environmentManager: environmentManager),
+      home: HomePage(
+        environmentManager: environmentManager,
+        autoStartSession: autoStartSession,
+      ),
     );
   }
 }
 
 class HomePage extends StatefulWidget {
   final EnvironmentManager environmentManager;
+  final bool autoStartSession;
 
   const HomePage({
     Key? key,
     required this.environmentManager,
+    this.autoStartSession = true,
   }) : super(key: key);
 
   @override
@@ -71,8 +78,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (!widget.environmentManager.isSetupComplete()) {
       _performInitialSetup();
     } else {
-      // If setup is already done, create a normal session immediately.
-      _createInitialSession();
+      // If setup is already done, create a normal session immediately unless disabled.
+      if (widget.autoStartSession) {
+        _createInitialSession();
+      }
     }
     
     // Listen for changes in the session list (additions/removals).
