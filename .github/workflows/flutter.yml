@@ -33,16 +33,4 @@ jobs:
           name: app-android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Install Linux build prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev libblkid-dev liblzma-dev
-      - name: Enable Linux desktop
-        run: flutter config --enable-linux-desktop
-      - name: Build Linux
-        run: flutter build linux --release
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-linux-bundle
-          path: build/linux/x64/release/bundle
+      # Linux build disabled per requirements
