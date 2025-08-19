@@ -27,13 +27,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Build Android APK (release)
-        run: flutter build apk --release --no-tree-shake-icons
+      - name: Build Android App Bundle (release)
+        run: flutter build appbundle --release --no-tree-shake-icons
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-android-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: app-android-aab
+          path: build/app/outputs/bundle/release/app-release.aab
 
       # Linux build disabled per requirements
