@@ -34,9 +34,8 @@ class EnvironmentManager {
   Future<void> _initializePaths() async {
     // Use our native implementation to get application support directory
     final appSupportDir = await PathProviderNative.getApplicationSupportDirectoryAsync();
-    // Canonicalize the path to avoid /data/user/0 symlink issues
-    final canonicalPath = await Directory(appSupportDir).resolveSymbolicLinks();
-    _appDataPath = canonicalPath;
+    // Avoid resolveSymbolicLinks on Android; keep the real internal path.
+    _appDataPath = appSupportDir;
     _usrPath = '${_appDataPath}/usr';
     _homePath = '${_appDataPath}/home';
     _prootPath = '${_appDataPath}/proot';
