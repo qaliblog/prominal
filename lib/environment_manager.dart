@@ -441,13 +441,14 @@ class EnvironmentManager {
     // On some Android versions, direct exec may be blocked. We'll still try direct,
     // and the session manager will fall back to `sh -lc` if exec fails.
     
-    // Build the proot command
+    // Build the proot command (more robust defaults)
     final command = [
       prootBinary,
       '-S', rootfsPath,
       '-0',
-      '-w', '/',
+      '-w', '/root',
       '-b', '/dev',
+      '-b', '/dev/pts',
       '-b', '/proc',
       '-b', '/sys',
       '-b', '$_tmpPath:/tmp',
@@ -457,6 +458,18 @@ class EnvironmentManager {
       '-b', '/mnt',
       '-b', '${_homePath}:/home',
       '-b', '${_prootPath}:/proot',
+      '/usr/bin/env',
+      '-i',
+      'HOME=/root',
+      'TERM=xterm-256color',
+      'LANG=en_US.UTF-8',
+      'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      'LD_LIBRARY_PATH=/lib:/usr/lib:/usr/local/lib',
+      'PROOT_NO_SECCOMP=1',
+      'PROOT_LOADER=/proot/loader',
+      'PROOT_LOADER32=/proot/loader32',
+      'PROOT_TMP_DIR=/tmp',
+      'LD_PRELOAD=',
       shellPath,
       ...shellArgs,
     ];
