@@ -30,6 +30,7 @@ if (flutterVersionName == null) {
 android {
     namespace "com.prominal"
     compileSdkVersion 34
+    buildToolsVersion '34.0.0'
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
