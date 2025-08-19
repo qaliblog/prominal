@@ -50,6 +50,13 @@ class SessionManager extends ChangeNotifier {
     String? title,
   }) async {
     print("SessionManager: Creating session with command: ${command.join(' ')}");
+    // Detailed environment diagnostics
+    try {
+      print("SessionManager: Platform: ${Platform.operatingSystem} ${Platform.version}");
+      print("SessionManager: HOME: ${Platform.environment['HOME']}");
+      print("SessionManager: USER: ${Platform.environment['USER']}");
+      print("SessionManager: PATH: ${Platform.environment['PATH']}");
+    } catch (_) {}
     
     // If the first command is proot, try running it through shell as fallback
     List<String> actualCommand = command;
@@ -84,14 +91,26 @@ class SessionManager extends ChangeNotifier {
             ? (Platform.environment['USERPROFILE'] ?? _envManager.homePath)
             : (Platform.environment['HOME'] ?? _envManager.homePath));
     
-    final pty = await startPlatformPty(
-      actualCommand.first,
-      actualCommand.length > 1 ? actualCommand.sublist(1) : [],
-      workingDirectory: cwd,
-      environment: env,
-    );
+    PlatformPty? pty;
+    try {
+      pty = await startPlatformPty(
+        actualCommand.first,
+        actualCommand.length > 1 ? actualCommand.sublist(1) : [],
+        workingDirectory: cwd,
+        environment: env,
+      );
+    } catch (error) {
+      print("SessionManager: PTY start failed: ${error}");
+      // If direct exec fails with permission issues and we're invoking proot, try shell fallback immediately
+      if (isProotInvocation) {
+        await _createProotSessionWithShell(command);
+        return;
+      }
+      rethrow;
+    }
 
     final terminal = Terminal(maxLines: 10000);
+    terminal.write('Prominal: starting session...\r\n');
 
     // Decode the PTY's byte output into a String for the terminal.
     pty.out
@@ -111,6 +130,7 @@ class SessionManager extends ChangeNotifier {
     };
 
     terminal.onResize = (w, h, pw, ph) {
+      print('SessionManager: resize to cols=$w rows=$h');
       pty.resize(h, w);
     };
 
@@ -124,6 +144,9 @@ class SessionManager extends ChangeNotifier {
 
     pty.exitCode.then((code) async {
       print("SessionManager: Session ${sessionId} exited with code: ${code}");
+      if (code == 126) {
+        print("SessionManager: Exit 126 indicates permission problem (exec). Consider shell fallback.");
+      }
       final index = _sessions.indexWhere((s) => s.id == sessionId);
       if (index != -1) {
         final session = _sessions[index];
@@ -134,7 +157,7 @@ class SessionManager extends ChangeNotifier {
       }
       
       // If proot failed with permission denied, try shell approach
-      if (code == -117 && command.first.contains('proot')) {
+      if ((code == -117 || code == 126 || code == -6) && command.first.contains('proot')) {
         print("SessionManager: Proot failed, trying shell approach...");
         await Future.delayed(const Duration(seconds: 1));
         await _createProotSessionWithShell(command);
@@ -147,6 +170,7 @@ class SessionManager extends ChangeNotifier {
     _activeSessionIndex = _sessions.length - 1;
 
     print("Created new session (ID: ${sessionId}) with command: ${actualCommand.join(' ')}");
+    terminal.write('Command: ${actualCommand.join(' ')}\r\nWorkingDir: ${cwd}\r\n');
     notifyListeners();
   }
   
@@ -155,7 +179,7 @@ class SessionManager extends ChangeNotifier {
     print("SessionManager: Creating proot session with shell fallback");
     
     // Convert the command to run through shell
-    final shellCommand = ['sh', '-c', originalCommand.join(' ')];
+    final shellCommand = ['sh', '-lc', originalCommand.map((p) => p.contains(' ') ? "'${p.replaceAll("'", "'\\''")}'" : p).join(' ')];
     
     final pty = await startPlatformPty(
       shellCommand.first,
@@ -216,6 +240,7 @@ class SessionManager extends ChangeNotifier {
     _activeSessionIndex = _sessions.length - 1;
 
     print("Created shell session (ID: ${sessionId})");
+    terminal.write('Shell fallback command: ${shellCommand.join(' ')}\r\n');
     notifyListeners();
   }
 
