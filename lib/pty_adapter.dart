@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -39,7 +40,7 @@ class MobilePlatformPty implements PlatformPty {
   Stream<List<int>> get out => _pty.output;
 
   @override
-  void write(String data) => _pty.write(Uint8List.fromList(const Utf8Encoder().convert(data)));
+  void write(String data) => _pty.write(Uint8List.fromList(utf8.encode(data)));
 
   @override
   void resize(int rows, int cols) => _pty.resize(cols, rows);
