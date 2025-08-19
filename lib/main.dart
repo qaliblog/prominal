@@ -75,6 +75,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _sessionManager = SessionManager.instance;
+    // If setup flag is present but rootfs is missing, clear flag to trigger setup.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await widget.environmentManager.ensureRootfsOrClearFlag();
+      if (!widget.environmentManager.isSetupComplete()) {
+        if (mounted) setState(() {});
+      }
+    });
 
     // Check if the one-time setup needs to be run.
     if (!widget.environmentManager.isSetupComplete()) {
@@ -389,22 +396,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     // Show setup progress
     if (_isSetupInProgress) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text("Performing one-time setup..."),
-            SizedBox(height: 8),
-            Text(
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text("Performing one-time setup..."),
+            const SizedBox(height: 8),
+            const Text(
               "Extracting Debian rootfs (this may take 2-5 minutes)",
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
-            SizedBox(height: 8),
-            Text(
+            const SizedBox(height: 8),
+            const Text(
               "Please be patient - the app may appear unresponsive during extraction",
               style: TextStyle(fontSize: 10, color: Colors.orange),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Status: ${widget.environmentManager.getEnvironmentStatus()['rootfsExists'] == true ? 'rootfs present' : 'rootfs missing'}',
+              style: const TextStyle(fontSize: 12),
             ),
           ],
         ),

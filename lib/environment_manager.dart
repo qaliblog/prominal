@@ -62,12 +62,19 @@ class EnvironmentManager {
   
   /// Check if the environment setup is complete
   bool isSetupComplete() {
-    // Android requires a one-time proot/rootfs setup. Desktop platforms use the host shell.
+    // Android arm64 requires a one-time proot/rootfs setup.
     if (!Platform.isAndroid) {
       return true;
     }
     final setupFlag = File('${_appDataPath}/$_setupFlagFile');
-    return setupFlag.existsSync();
+    final flagExists = setupFlag.existsSync();
+    // Consider setup incomplete if rootfs core bin directory is missing
+    final hasRootfs = Directory('${_usrPath}/bin').existsSync();
+    if (_isArm64DeviceSync()) {
+      return flagExists && hasRootfs;
+    }
+    // Non-arm64 Android devices use host shell; no rootfs needed
+    return true;
   }
   
   /// Get the home path for terminal sessions
@@ -101,6 +108,11 @@ class EnvironmentManager {
       await _extractRootfsInBackground();
       await _setupPermissions();
       await _createSetupFlag();
+      // Validate rootfs was extracted
+      final hasRootfs = Directory('${_usrPath}/bin').existsSync();
+      if (!hasRootfs) {
+        throw Exception('Rootfs extraction did not complete: ${_usrPath}/bin missing');
+      }
       print('EnvironmentManager: Environment setup completed successfully');
     } catch (e) {
       print('EnvironmentManager: Setup failed: $e');
@@ -436,6 +448,22 @@ class EnvironmentManager {
     } catch (e) {
       print('EnvironmentManager: Reset failed: $e');
       rethrow;
+    }
+  }
+
+  /// Ensure rootfs exists; if missing, clear setup flag so setup restarts
+  Future<void> ensureRootfsOrClearFlag() async {
+    try {
+      final hasRootfs = Directory('${_usrPath}/bin').existsSync();
+      if (!hasRootfs) {
+        final flagFile = File('${_appDataPath}/$_setupFlagFile');
+        if (await flagFile.exists()) {
+          await flagFile.delete();
+          print('EnvironmentManager: Cleared setup flag due to missing rootfs; setup will run again.');
+        }
+      }
+    } catch (e) {
+      print('EnvironmentManager: ensureRootfsOrClearFlag error: $e');
     }
   }
   
