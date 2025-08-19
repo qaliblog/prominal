@@ -206,6 +206,13 @@ class EnvironmentManager {
     } catch (e) {
       print('EnvironmentManager: Failed to list proot dir: $e');
     }
+    // Try to execute from new location
+    try {
+      final testResult = await Process.run('${_prootPath}/$_prootBinary', ['--help']);
+      print('EnvironmentManager: proot test from new path exit=${testResult.exitCode}');
+    } catch (e) {
+      print('EnvironmentManager: proot test run failed: $e');
+    }
   }
   
   /// Extract the Debian rootfs archive in an isolate with progress updates
@@ -679,7 +686,14 @@ class EnvironmentManager {
       'libPath': _libPath,
       'prootBinaryExists': File('${_prootPath}/$_prootBinary').existsSync(),
       'rootfsExists': Directory('${getComputedRootfsPath()}/bin').existsSync() || Directory('${getComputedRootfsPath()}/usr/bin').existsSync(),
+      'prootExecTest': _testProotExecStatus(),
     };
+  }
+  
+  String _testProotExecStatus() {
+    final proot = File('${_prootPath}/$_prootBinary');
+    final st = proot.existsSync() ? (proot.statSync().mode.toRadixString(8)) : 'missing';
+    return 'exists=${proot.existsSync()} mode=$st path=${proot.path}';
   }
 }
 
