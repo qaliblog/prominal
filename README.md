@@ -11,4 +11,4 @@ Terminal emulator app built with Flutter.
 
 ## CI
 
-GitHub Actions workflow builds Android APK and Linux bundle on push/PR to `main`.
+GitHub Actions workflow builds Android artifacts on push/PR to any branch. Artifacts include AAB and a universal APK.

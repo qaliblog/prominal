@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:prominal/environment_manager.dart';
 import 'package:prominal/session_manager.dart';
 import 'package:prominal/terminal_page.dart';
+import 'package:prominal/workspace_page.dart';
+import 'package:prominal/settings_page.dart';
 import 'dart:async';
 
 void main() async {
@@ -187,17 +189,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     
     // Rebuild the UI to reflect the new list of sessions.
     // We also need to manage the TabController here.
+    // Maintain TabController only for TabBarView; we still keep it to page between sessions
     final sessionCount = _sessionManager.sessions.length;
     final newIndex = _sessionManager.sessions.indexOf(_sessionManager.activeSession!);
-    
-    // If the TabController exists and the number of tabs changed, dispose it.
     if (_tabController != null && _tabController!.length != sessionCount) {
       _tabController?.removeListener(_onTabChanged);
       _tabController?.dispose();
       _tabController = null;
     }
-    
-    // Create a new TabController if needed.
     if (_tabController == null && sessionCount > 0) {
       _tabController = TabController(
         initialIndex: newIndex,
@@ -206,12 +205,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       );
       _tabController!.addListener(_onTabChanged);
     }
-    
-    // Animate to the correct tab if the active session changed.
     if (_tabController != null && _tabController!.index != newIndex) {
       _tabController!.animateTo(newIndex);
     }
-    
+
     setState(() {}); // Trigger a rebuild.
   }
   
@@ -238,29 +235,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       appBar: AppBar(
         title: const Text('prominal'),
         elevation: 0,
-        // The tab bar for switching between sessions.
-        bottom: _sessionManager.hasSessions && _tabController != null
-            ? TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                tabs: _sessionManager.sessions.map((session) {
-                  return Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(session.title),
-                        const SizedBox(width: 8),
-                        // A small 'x' button to close the tab.
-                        InkWell(
-                          onTap: () => _sessionManager.closeSession(session.id),
-                          child: const Icon(Icons.close, size: 16),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              )
-            : null,
+        actions: [
+          if (_sessionManager.hasSessions)
+            Builder(
+              builder: (ctx) => IconButton(
+                tooltip: 'Sessions',
+                icon: const Icon(Icons.view_sidebar),
+                onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+              ),
+            ),
+          IconButton(
+            tooltip: 'Environment Status',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () {
+              final status = widget.environmentManager.getEnvironmentStatus();
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Environment Status'),
+                  content: SingleChildScrollView(
+                    child: Text(status.entries.map((e) => '${e.key}: ${e.value}').join('\n')),
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              );
+            },
+          ),
+        ],
+        // Removed top TabBar; use right-side drawer like Termux for sessions
       ),
       // A floating action button to create new sessions with extra bottom padding.
       floatingActionButton: Padding(
@@ -270,8 +280,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           child: const Icon(Icons.add),
         ),
       ),
-      // The main content area.
+      // The main content area with a right-side drawer for session list like Termux.
       body: _buildBody(),
+      endDrawer: _buildSessionDrawer(),
+      endDrawerEnableOpenDragGesture: true,
+      drawerEdgeDragWidth: 24,
     );
   }
 
@@ -403,13 +416,57 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return TabBarView(
         controller: _tabController,
         children: _sessionManager.sessions.map((session) {
-          // Each tab contains a TerminalPage for that session.
-          return TerminalPage(key: ValueKey(session.id), session: session);
+          // Each tab shows the 4-pane workspace.
+          return WorkspacePage(key: ValueKey(session.id), session: session);
         }).toList(),
       );
     }
     
     // Default/fallback view.
     return const Center(child: Text("Initializing session..."));
+  }
+
+  Widget? _buildSessionDrawer() {
+    if (!_sessionManager.hasSessions) return null;
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text('Sessions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _sessionManager.sessions.length,
+                itemBuilder: (context, index) {
+                  final s = _sessionManager.sessions[index];
+                  return ListTile(
+                    title: Text(s.title),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => _sessionManager.closeSession(s.id),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).maybePop();
+                      _tabController?.animateTo(index);
+                    },
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ElevatedButton.icon(
+                onPressed: _createInitialSession,
+                icon: const Icon(Icons.add),
+                label: const Text('New Session'),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
   }
 }
