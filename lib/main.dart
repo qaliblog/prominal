@@ -425,6 +425,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             }
             detail = data.detail;
           }
+          final minimalReady = stageText == 'minimal-ready' || widget.environmentManager.isMinimalReady();
           return Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
@@ -440,6 +441,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   const SizedBox(height: 4),
                   Text(detail!, style: const TextStyle(fontSize: 12, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
+                const SizedBox(height: 12),
+                if (minimalReady)
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Start Shell Now'),
+                    onPressed: () {
+                      // Start a session while extraction continues in background
+                      _sessionManager.createNewSession(
+                        command: widget.environmentManager.getInitialCommand(),
+                        title: 'Shell',
+                      );
+                    },
+                  ),
                 const SizedBox(height: 12),
                 Text(
                   'Rootfs: ${widget.environmentManager.getEnvironmentStatus()['rootfsExists'] == true ? 'present' : 'missing'}',
