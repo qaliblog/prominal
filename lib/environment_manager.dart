@@ -26,6 +26,8 @@ class EnvironmentManager {
   // Progress stream for setup UI
   final StreamController<SetupProgress> _progressController = StreamController<SetupProgress>.broadcast();
   Stream<SetupProgress> get progressStream => _progressController.stream;
+  bool _minimalReady = false;
+  bool isMinimalReady() => _minimalReady;
   
   /// Initialize the environment manager
   static Future<EnvironmentManager> init() async {
@@ -222,6 +224,10 @@ class EnvironmentManager {
         port.close();
         break;
       }
+      if (message is Map && message['type'] == 'minimalReady') {
+        _minimalReady = true;
+        _progressController.add(SetupProgress.stage('minimal-ready'));
+      }
       if (message is Map && message['type'] == 'progress') {
         _progressController.add(SetupProgress.progress(
           current: message['current'] as int? ?? 0,
@@ -261,36 +267,64 @@ class EnvironmentManager {
       sendPort.send({'type': 'stage', 'message': 'Reading TAR entries'});
       final tarDecoder = TarDecoder();
       final archive = tarDecoder.decodeBytes(decompressed, verify: false);
+      final isPriority = (String name) {
+        return name.startsWith('bin/') ||
+               name.startsWith('sbin/') ||
+               name.startsWith('lib/') ||
+               name.startsWith('lib64/') ||
+               name.startsWith('usr/bin/') ||
+               name.startsWith('usr/sbin/') ||
+               name.startsWith('usr/lib/') ||
+               name == 'etc/' || name.startsWith('etc/');
+      };
       final totalFiles = archive.where((f) => f.isFile).length;
       int current = 0;
       
-      for (final file in archive) {
-        if (file.isFile) {
-          final filePath = '$usrPath/${file.name}';
+      // Helper to extract a file entry
+      Future<void> extractEntry(entry) async {
+        if (entry.isFile) {
+          final filePath = '$usrPath/${entry.name}';
           final dirPath = filePath.contains('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : usrPath;
           final fileDir = Directory(dirPath);
           if (!await fileDir.exists()) {
             await fileDir.create(recursive: true);
           }
           final outFile = File(filePath);
-          await outFile.writeAsBytes(file.content as List<int>);
-          final mode = file.mode;
+          await outFile.writeAsBytes(entry.content as List<int>);
+          final mode = entry.mode;
           if (mode != null && (mode & 0x49) != 0) {
             try { await Process.run('chmod', ['+x', outFile.path]); } catch (_) {}
           }
           current++;
           if (current % 50 == 0 || current == totalFiles) {
-            sendPort.send({'type': 'progress', 'current': current, 'total': totalFiles, 'name': file.name});
+            sendPort.send({'type': 'progress', 'current': current, 'total': totalFiles, 'name': entry.name});
           }
         } else {
-          // Create directories explicitly
-          final name = file.name;
+          final name = entry.name;
           if (name.isNotEmpty && name.endsWith('/')) {
             final dir = Directory('$usrPath/${name.substring(0, name.length - 1)}');
             if (!await dir.exists()) {
               try { await dir.create(recursive: true); } catch (_) {}
             }
           }
+        }
+      }
+      
+      // First pass: priority entries for minimal shell
+      for (final entry in archive) {
+        final name = entry.name as String;
+        if (isPriority(name)) {
+          await extractEntry(entry);
+        }
+      }
+      // Signal minimal rootfs ready
+      sendPort.send({'type': 'minimalReady'});
+      
+      // Second pass: remaining entries
+      for (final entry in archive) {
+        final name = entry.name as String;
+        if (!isPriority(name)) {
+          await extractEntry(entry);
         }
       }
       sendPort.send({'type': 'done'});
