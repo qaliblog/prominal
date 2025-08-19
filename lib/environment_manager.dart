@@ -354,11 +354,11 @@ class EnvironmentManager {
       // Ensure common rootfs bin directories have exec bits for user
       try {
         final rootfs = getComputedRootfsPath();
-        final cmd = 'chmod -R u+rx ' \
-            + '$rootfs/bin ' \
-            + '$rootfs/usr/bin ' \
-            + '$rootfs/usr/sbin ' \
-            + '$rootfs/sbin 2>/dev/null || true';
+        final cmd = 'chmod -R u+rx '
+            '${rootfs}/bin '
+            '${rootfs}/usr/bin '
+            '${rootfs}/usr/sbin '
+            '${rootfs}/sbin 2>/dev/null || true';
         final res = await Process.run('sh', ['-c', cmd]);
         print('EnvironmentManager: Ensured exec bits on rootfs bins (exit ${res.exitCode})');
       } catch (e) {
