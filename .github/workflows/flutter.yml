@@ -2,9 +2,9 @@ name: Flutter CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "**" ]
 
 jobs:
   build:
@@ -12,6 +12,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Enable Git LFS (for large assets)
+        run: |
+          git lfs install --local || true
+          git lfs pull || true
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

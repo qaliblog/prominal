@@ -46,6 +46,7 @@ class EnvironmentManager {
     
     // Create necessary directories
     await _createDirectories();
+    print('EnvironmentManager: Paths initialized: app=$_appDataPath usr=$_usrPath home=$_homePath proot=$_prootPath lib=$_libPath tmp=$_tmpPath');
   }
   
   /// Create necessary directories
@@ -85,6 +86,7 @@ class EnvironmentManager {
   Future<void> setupEnvironment() async {
     // Only Android arm64 needs the proot/rootfs bootstrap. Skip on desktop and non-arm64 Android.
     if (!Platform.isAndroid) {
+      print('EnvironmentManager: Non-Android platform, skipping proot setup');
       return;
     }
     if (!_isArm64DeviceSync()) {
@@ -131,7 +133,11 @@ class EnvironmentManager {
         
         // Make executable if it's the proot binary
         if (fileName == _prootBinary) {
-          await Process.run('chmod', ['700', file.path]);
+          try {
+            await Process.run('chmod', ['700', file.path]);
+          } catch (e) {
+            print('EnvironmentManager: chmod on proot failed: $e');
+          }
         }
         
         print('EnvironmentManager: Extracted $fileName');
@@ -139,6 +145,13 @@ class EnvironmentManager {
         print('EnvironmentManager: Failed to extract $fileName: $e');
         rethrow;
       }
+    }
+    // Print ls -l for proot dir to debug permissions
+    try {
+      final listing = await Process.run('sh', ['-c', 'ls -l ${_prootPath} | sed -n "1,120p"']);
+      print('EnvironmentManager: proot dir listing exit=${listing.exitCode}\n${listing.stdout}');
+    } catch (e) {
+      print('EnvironmentManager: Failed to list proot dir: $e');
     }
   }
   
@@ -229,6 +242,12 @@ class EnvironmentManager {
         } catch (e) {
           print('EnvironmentManager: chmod failed: $e');
         }
+
+        // Print mount exec context for debugging
+        try {
+          final ctx = await Process.run('sh', ['-c', 'mount | head -n 20']);
+          print('EnvironmentManager: mount output (first 20 lines):\n${ctx.stdout}');
+        } catch (_) {}
         
         // Method 2: Test if the binary actually works
         if (permissionsOk) {
@@ -248,6 +267,13 @@ class EnvironmentManager {
         
         if (!permissionsOk) {
           print('EnvironmentManager: Warning - proot binary permissions may not be set correctly');
+          // Try shell execution as fallback
+          try {
+            final shTest = await Process.run('sh', ['-c', '${prootFile.path} --help']);
+            print('EnvironmentManager: Shell exec test exit=${shTest.exitCode}');
+          } catch (e) {
+            print('EnvironmentManager: Shell exec test failed: $e');
+          }
         }
       }
       
@@ -275,6 +301,8 @@ class EnvironmentManager {
     // On Android, launch the Debian environment via proot.
     if (Platform.isAndroid) {
       if (_isArm64DeviceSync()) {
+        // Print debug info about proot paths
+        print('EnvironmentManager: Initial proot cmd will use ${_prootPath}/$_prootBinary');
         return getProotCommandWithFallback(
           rootfsPath: _usrPath,
           shellPath: '/bin/bash',
@@ -326,6 +354,8 @@ class EnvironmentManager {
     List<String> shellArgs = const [],
   }) {
     final prootBinary = '${_prootPath}/$_prootBinary';
+    // On some Android versions, direct exec may be blocked. We'll still try direct,
+    // and the session manager will fall back to `sh -lc` if exec fails.
     
     // Build the proot command
     final command = [
@@ -355,7 +385,7 @@ class EnvironmentManager {
   Map<String, String> getProotEnvironment() {
     return {
       'HOME': '/home',
-      'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/bin:/usr/bin',
       'TERM': 'xterm-256color',
       'LANG': 'en_US.UTF-8',
       'LC_ALL': 'en_US.UTF-8',
@@ -366,6 +396,7 @@ class EnvironmentManager {
       'PROOT_TMP_DIR': '/tmp',
       // Unset LD_PRELOAD by setting it to empty
       'LD_PRELOAD': '',
+      'PROMINAL_DEBUG': '1',
     };
   }
   
