@@ -163,7 +163,7 @@ class SessionManager extends ChangeNotifier {
       }
       
       // If proot failed with permission denied, try shell approach
-      if ((code == -117 || code == 126 || code == -6) && command.first.contains('proot')) {
+      if ((code == -117 || code == 126 || code == -6 || code == -120 || code == -121) && command.first.contains('proot')) {
         print("SessionManager: Proot failed, trying shell approach...");
         await Future.delayed(const Duration(seconds: 1));
         await _createProotSessionWithShell(command);
