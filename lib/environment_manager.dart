@@ -73,7 +73,8 @@ class EnvironmentManager {
     final setupFlag = File('${_appDataPath}/$_setupFlagFile');
     final flagExists = setupFlag.existsSync();
     // Consider setup incomplete if rootfs core directories are missing
-    final hasRootfs = Directory('${_usrPath}/bin').existsSync() || Directory('${_usrPath}/usr/bin').existsSync();
+    final computed = getComputedRootfsPath();
+    final hasRootfs = Directory('$computed/bin').existsSync() || Directory('$computed/usr/bin').existsSync();
     if (_isArm64DeviceSync()) {
       return flagExists && hasRootfs;
     }
@@ -86,6 +87,33 @@ class EnvironmentManager {
   
   /// Get the usr path (rootfs location)
   String get usrPath => _usrPath;
+  
+  /// Compute the actual rootfs root directory (handles wrappers like rootfs/ or debian*/)
+  String getComputedRootfsPath() {
+    // Direct check
+    if (Directory('$_usrPath/bin').existsSync() || Directory('$_usrPath/usr/bin').existsSync()) {
+      return _usrPath;
+    }
+    // Look for a single nested directory that contains bin or usr/bin
+    try {
+      final root = Directory(_usrPath);
+      if (root.existsSync()) {
+        final children = root
+            .listSync()
+            .whereType<Directory>()
+            .toList(growable: false);
+        for (final d in children) {
+          if (Directory('${d.path}/bin').existsSync() || Directory('${d.path}/usr/bin').existsSync()) {
+            print('EnvironmentManager: Using nested rootfs directory: ${d.path}');
+            return d.path;
+          }
+        }
+      }
+    } catch (e) {
+      print('EnvironmentManager: getComputedRootfsPath error: $e');
+    }
+    return _usrPath;
+  }
   
   /// Get the proot path
   String get prootPath => _prootPath;
@@ -117,9 +145,10 @@ class EnvironmentManager {
       await _setupPermissions();
       await _createSetupFlag();
       // Validate rootfs was extracted
-      final hasRootfs = Directory('${_usrPath}/bin').existsSync() || Directory('${_usrPath}/usr/bin').existsSync();
+      final computed = getComputedRootfsPath();
+      final hasRootfs = Directory('$computed/bin').existsSync() || Directory('$computed/usr/bin').existsSync();
       if (!hasRootfs) {
-        throw Exception('Rootfs extraction did not complete: ${_usrPath}/bin missing');
+        throw Exception('Rootfs extraction did not complete: $computed/bin missing');
       }
       print('EnvironmentManager: Environment setup completed successfully');
       _progressController.add(SetupProgress.stage('Setup complete'));
@@ -222,7 +251,7 @@ class EnvironmentManager {
       
       sendPort.send({'type': 'stage', 'message': 'Reading TAR entries'});
       final tarDecoder = TarDecoder();
-      final archive = tarDecoder.decodeBytes(decompressed);
+      final archive = tarDecoder.decodeBytes(decompressed, verify: false);
       final totalFiles = archive.where((f) => f.isFile).length;
       int current = 0;
       
@@ -324,7 +353,12 @@ class EnvironmentManager {
 
       // Ensure common rootfs bin directories have exec bits for user
       try {
-        final cmd = 'chmod -R u+rx ${_usrPath}/bin ${_usrPath}/usr/bin ${_usrPath}/usr/sbin ${_usrPath}/sbin 2>/dev/null || true';
+        final rootfs = getComputedRootfsPath();
+        final cmd = 'chmod -R u+rx ' \
+            + '$rootfs/bin ' \
+            + '$rootfs/usr/bin ' \
+            + '$rootfs/usr/sbin ' \
+            + '$rootfs/sbin 2>/dev/null || true';
         final res = await Process.run('sh', ['-c', cmd]);
         print('EnvironmentManager: Ensured exec bits on rootfs bins (exit ${res.exitCode})');
       } catch (e) {
@@ -351,8 +385,10 @@ class EnvironmentManager {
       if (_isArm64DeviceSync()) {
         // Print debug info about proot paths
         print('EnvironmentManager: Initial proot cmd will use ${_prootPath}/$_prootBinary');
+        final rootfs = getComputedRootfsPath();
+        print('EnvironmentManager: Computed rootfs path: ' + rootfs);
         return getProotCommandWithFallback(
-          rootfsPath: _usrPath,
+          rootfsPath: rootfs,
           shellPath: '/bin/bash',
           shellArgs: ['--login'],
         );
@@ -573,11 +609,12 @@ class EnvironmentManager {
       'setupComplete': isSetupComplete(),
       'appDataPath': _appDataPath,
       'usrPath': _usrPath,
+      'rootfsRootPath': getComputedRootfsPath(),
       'homePath': _homePath,
       'prootPath': _prootPath,
       'libPath': _libPath,
       'prootBinaryExists': File('${_prootPath}/$_prootBinary').existsSync(),
-      'rootfsExists': Directory('${_usrPath}/bin').existsSync() || Directory('${_usrPath}/usr/bin').existsSync(),
+      'rootfsExists': Directory('${getComputedRootfsPath()}/bin').existsSync() || Directory('${getComputedRootfsPath()}/usr/bin').existsSync(),
     };
   }
 }
