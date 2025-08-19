@@ -58,14 +58,20 @@ class SessionManager extends ChangeNotifier {
       print("SessionManager: PATH: ${Platform.environment['PATH']}");
     } catch (_) {}
     
-    // If the first command is proot, try running it through shell as fallback
+    // If the first command is proot on Android, run via shell to avoid exec restrictions
     List<String> actualCommand = command;
     if (command.first.contains('proot')) {
-      // Try direct execution first, but prepare shell fallback
-      print("SessionManager: Attempting proot session with direct execution");
+      print("SessionManager: Detected proot invocation");
+      if (Platform.isAndroid) {
+        final quoted = command.map((p) => p.contains(' ') ? "'${p.replaceAll("'", "'\\''")}'" : p).join(' ');
+        actualCommand = ['sh', '-lc', quoted];
+        print("SessionManager: Routing proot via shell: ${actualCommand.join(' ')}");
+      } else {
+        print("SessionManager: Attempting proot session with direct execution");
+      }
     }
     
-    final bool isProotInvocation = actualCommand.first.contains('proot');
+    final bool isProotInvocation = command.first.contains('proot');
 
     // Environment differs on Android vs desktop
     final Map<String, String> env = Platform.isAndroid

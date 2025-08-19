@@ -20,14 +20,16 @@ class WorkspacePage extends StatefulWidget {
   State<WorkspacePage> createState() => _WorkspacePageState();
 }
 
-class _WorkspacePageState extends State<WorkspacePage> {
+class _WorkspacePageState extends State<WorkspacePage> with SingleTickerProviderStateMixin {
   late final FocusNode _terminalFocusNode;
   Offset? _lastPressPosition;
+  late final TabController _tabController;
 
   @override
   void initState() {
     super.initState();
     _terminalFocusNode = FocusNode();
+    _tabController = TabController(length: 4, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _terminalFocusNode.requestFocus();
     });
@@ -36,31 +38,35 @@ class _WorkspacePageState extends State<WorkspacePage> {
   @override
   void dispose() {
     _terminalFocusNode.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Grid layout: top row (Terminal, File Manager); bottom row (Editor, Chat)
+    // Tab layout: Terminal | Files | Editor | Chat
     return SafeArea(
       child: Column(
         children: [
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(child: _buildTerminalPane()),
-                const VerticalDivider(width: 1),
-                const Expanded(child: FileManagerView()),
-              ],
-            ),
+          TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            tabs: const [
+              Tab(text: 'Terminal', icon: Icon(Icons.code)),
+              Tab(text: 'Files', icon: Icon(Icons.folder)),
+              Tab(text: 'Editor', icon: Icon(Icons.edit)),
+              Tab(text: 'Chat', icon: Icon(Icons.chat_bubble_outline)),
+            ],
           ),
           const Divider(height: 1),
           Expanded(
-            child: Row(
+            child: TabBarView(
+              controller: _tabController,
               children: [
-                const Expanded(child: EditorView()),
-                const VerticalDivider(width: 1),
-                Expanded(child: ChatView()),
+                _buildTerminalPane(),
+                const FileManagerView(),
+                const EditorView(),
+                ChatView(),
               ],
             ),
           ),
