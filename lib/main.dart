@@ -132,20 +132,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       print("Prominal: Environment prepared, creating setup session...");
       
       // 2. Create a special terminal session that runs the bootstrap script.
-      // This session will close automatically when the script finishes.
+      // If we detect proot issues, fall back to the host Android shell to avoid hanging.
+      final setupCmd = widget.environmentManager.getInitialCommand();
+      final isProot = setupCmd.isNotEmpty && setupCmd.first.contains('proot');
       _sessionManager.createNewSession(
-        command: widget.environmentManager.getInitialCommand(),
+        command: isProot ? setupCmd : widget.environmentManager.getAndroidHostShellCommand(),
         title: 'Setup',
       );
       
       print("Prominal: Setup session created");
       
       // Start a timeout timer for the setup session
-      _setupTimeoutTimer = Timer(const Duration(minutes: 30), () {
+      _setupTimeoutTimer = Timer(const Duration(minutes: 5), () {
         if (_isSetupInProgress && mounted) {
           print("Prominal: Setup session timeout - session may be hanging");
           setState(() {
-            _setupError = "Setup session is taking too long (30+ minutes). The bootstrap script may be hanging. Try resetting the environment.";
+            _setupError = "Setup session is taking too long. Try Reset & Retry or open Android Shell from the empty state.";
             _isSetupInProgress = false;
           });
         }
