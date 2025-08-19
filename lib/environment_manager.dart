@@ -456,7 +456,6 @@ class EnvironmentManager {
       '-b', '/sdcard',
       '-b', '/mnt',
       '-b', '${_homePath}:/home',
-      '-b', '${_libPath}:/lib',
       '-b', '${_prootPath}:/proot',
       shellPath,
       ...shellArgs,
@@ -469,11 +468,11 @@ class EnvironmentManager {
   Map<String, String> getProotEnvironment() {
     return {
       'HOME': '/home',
-      'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/bin:/usr/bin',
+      'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       'TERM': 'xterm-256color',
       'LANG': 'en_US.UTF-8',
       'LC_ALL': 'en_US.UTF-8',
-      'LD_LIBRARY_PATH': '/lib:/usr/lib',
+      'LD_LIBRARY_PATH': '/lib:/usr/lib:/usr/local/lib',
       'PROOT_NO_SECCOMP': '1',
       'PROOT_LOADER': '/proot/loader',
       'PROOT_LOADER32': '/proot/loader32',
