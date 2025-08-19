@@ -81,8 +81,13 @@ class EnvironmentManager {
   
   /// Setup the complete environment
   Future<void> setupEnvironment() async {
-    // Only Android needs the proot/rootfs bootstrap. Skip on desktop.
+    // Only Android arm64 needs the proot/rootfs bootstrap. Skip on desktop and non-arm64 Android.
     if (!Platform.isAndroid) {
+      return;
+    }
+    if (!_isArm64DeviceSync()) {
+      print('EnvironmentManager: Non-arm64 Android device detected; skipping proot/rootfs setup');
+      await _createSetupFlag();
       return;
     }
 
@@ -267,11 +272,15 @@ class EnvironmentManager {
   List<String> getInitialCommand() {
     // On Android, launch the Debian environment via proot.
     if (Platform.isAndroid) {
-      return getProotCommandWithFallback(
-        rootfsPath: _usrPath,
-        shellPath: '/bin/bash',
-        shellArgs: ['--login'],
-      );
+      if (_isArm64DeviceSync()) {
+        return getProotCommandWithFallback(
+          rootfsPath: _usrPath,
+          shellPath: '/bin/bash',
+          shellArgs: ['--login'],
+        );
+      }
+      // Fallback: host Android shell on non-arm64 devices/emulators.
+      return ['/system/bin/sh'];
     }
 
     // On desktop platforms, launch the host system shell directly.
@@ -285,6 +294,27 @@ class EnvironmentManager {
         ? '/bin/zsh'
         : (File('/bin/bash').existsSync() ? '/bin/bash' : '/bin/sh');
     return [shellPath, '--login'];
+  }
+
+  /// Best-effort synchronous detection of arm64 on Android
+  static bool _isArm64DeviceSync() {
+    if (!Platform.isAndroid) return false;
+    try {
+      final abi = Process.runSync('getprop', ['ro.product.cpu.abi']);
+      final out = (abi.stdout is String) ? (abi.stdout as String).toLowerCase().trim() : '';
+      if (out.contains('arm64') || out.contains('aarch64')) return true;
+    } catch (_) {}
+    try {
+      final abis = Process.runSync('getprop', ['ro.product.cpu.abilist']);
+      final out = (abis.stdout is String) ? (abis.stdout as String).toLowerCase() : '';
+      if (out.contains('arm64') || out.contains('aarch64')) return true;
+    } catch (_) {}
+    try {
+      final u = Process.runSync('uname', ['-m']);
+      final out = (u.stdout is String) ? (u.stdout as String).toLowerCase().trim() : '';
+      if (out.contains('aarch64') || out.contains('arm64')) return true;
+    } catch (_) {}
+    return false;
   }
   
   /// Get proot command with fallback options
