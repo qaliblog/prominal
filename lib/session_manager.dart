@@ -91,7 +91,7 @@ class SessionManager extends ChangeNotifier {
             ? (Platform.environment['USERPROFILE'] ?? _envManager.homePath)
             : (Platform.environment['HOME'] ?? _envManager.homePath));
     
-    PlatformPty? pty;
+    late final PlatformPty pty;
     try {
       pty = await startPlatformPty(
         actualCommand.first,
