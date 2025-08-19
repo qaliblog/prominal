@@ -419,6 +419,11 @@ class EnvironmentManager {
     return [shellPath, '--login'];
   }
 
+  /// Host Android shell command for fallback
+  List<String> getAndroidHostShellCommand() {
+    return ['/system/bin/sh'];
+  }
+
   /// Best-effort synchronous detection of arm64 on Android
   static bool _isArm64DeviceSync() {
     if (!Platform.isAndroid) return false;
