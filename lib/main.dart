@@ -70,6 +70,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool _isSetupInProgress = false;
   String? _setupError;
   Timer? _setupTimeoutTimer;
+  Timer? _startupFallbackTimer;
 
   @override
   void initState() {
@@ -90,6 +91,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // If setup is already done, create a normal session immediately unless disabled.
       if (widget.autoStartSession) {
         _createInitialSession();
+        // If no session appears shortly, fall back to host shell automatically
+        _startupFallbackTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted && !_sessionManager.hasSessions) {
+            print('HomePage: No session started, launching Android host shell fallback');
+            _sessionManager.createNewSession(
+              command: widget.environmentManager.getAndroidHostShellCommand(),
+              title: 'Android Shell',
+            );
+          }
+        });
       }
     }
     
@@ -233,6 +244,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _tabController?.removeListener(_onTabChanged);
     _tabController?.dispose();
     _setupTimeoutTimer?.cancel();
+    _startupFallbackTimer?.cancel();
     super.dispose();
   }
 
@@ -450,7 +462,40 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
     
     // Default/fallback view.
-    return const Center(child: Text("Initializing session..."));
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('No active terminal session'),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            alignment: WrapAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                icon: const Icon(Icons.code),
+                label: const Text('Start Proot Shell'),
+                onPressed: () {
+                  _createInitialSession();
+                },
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.android),
+                label: const Text('Start Android Shell (fallback)'),
+                onPressed: () {
+                  _sessionManager.createNewSession(
+                    command: widget.environmentManager.getAndroidHostShellCommand(),
+                    title: 'Android Shell',
+                  );
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Widget? _buildSessionDrawer() {
