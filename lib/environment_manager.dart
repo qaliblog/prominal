@@ -460,6 +460,9 @@ class EnvironmentManager {
       '-b', '/dev/pts',
       '-b', '/proc',
       '-b', '/sys',
+      '-b', '/system',
+      '-b', '/vendor',
+      '-b', '/apex',
       '-b', '$_tmpPath:/tmp',
       '-b', '/data',
       '-b', '/storage',
@@ -478,6 +481,7 @@ class EnvironmentManager {
       'PROOT_LOADER=/proot/loader',
       'PROOT_LOADER32=/proot/loader32',
       'PROOT_TMP_DIR=/tmp',
+      // On some Androids system libs preload; explicitly empty LD_PRELOAD
       'LD_PRELOAD=',
       shellPath,
       ...shellArgs,
