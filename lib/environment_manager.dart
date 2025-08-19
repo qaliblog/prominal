@@ -132,7 +132,7 @@ class EnvironmentManager {
         await file.writeAsBytes(bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes));
         
         // Make executable if it's the proot binary
-        if (fileName == _prootBinary) {
+        if (fileName == _prootBinary || fileName == 'loader' || fileName == 'loader32') {
           try {
             await Process.run('chmod', ['700', file.path]);
           } catch (e) {
@@ -281,6 +281,15 @@ class EnvironmentManager {
       final homeDir = Directory(_homePath);
       if (!await homeDir.exists()) {
         await homeDir.create(recursive: true);
+      }
+
+      // Ensure common rootfs bin directories have exec bits for user
+      try {
+        final cmd = 'chmod -R u+rx ${_usrPath}/bin ${_usrPath}/usr/bin ${_usrPath}/usr/sbin ${_usrPath}/sbin 2>/dev/null || true';
+        final res = await Process.run('sh', ['-c', cmd]);
+        print('EnvironmentManager: Ensured exec bits on rootfs bins (exit ${res.exitCode})');
+      } catch (e) {
+        print('EnvironmentManager: chmod rootfs bins failed: $e (non-fatal)');
       }
       
       print('EnvironmentManager: Permissions setup completed');
