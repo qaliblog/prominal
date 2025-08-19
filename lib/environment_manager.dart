@@ -36,9 +36,11 @@ class EnvironmentManager {
     final appSupportDir = await PathProviderNative.getApplicationSupportDirectoryAsync();
     // Avoid resolveSymbolicLinks on Android; keep the real internal path.
     _appDataPath = appSupportDir;
+    // Place executable proot in code_cache which is more permissive for exec
+    final execBase = await PathProviderNative.getExecutableCacheDirectoryAsync();
     _usrPath = '${_appDataPath}/usr';
     _homePath = '${_appDataPath}/home';
-    _prootPath = '${_appDataPath}/proot';
+    _prootPath = '$execBase/proot';
     _libPath = '${_appDataPath}/lib';
     _tmpPath = '${_appDataPath}/tmp';
     
@@ -129,7 +131,7 @@ class EnvironmentManager {
         
         // Make executable if it's the proot binary
         if (fileName == _prootBinary) {
-          await Process.run('chmod', ['+x', file.path]);
+          await Process.run('chmod', ['700', file.path]);
         }
         
         print('EnvironmentManager: Extracted $fileName');
@@ -219,7 +221,7 @@ class EnvironmentManager {
         
         // Method 1: Try chmod
         try {
-          final result = await Process.run('chmod', ['+x', prootFile.path]);
+          final result = await Process.run('chmod', ['700', prootFile.path]);
           if (result.exitCode == 0) {
             print('EnvironmentManager: Set proot binary permissions using chmod');
             permissionsOk = true;
@@ -441,7 +443,7 @@ class EnvironmentManager {
       
       // Method 1: chmod
       try {
-        final result = await Process.run('chmod', ['+x', prootFile.path]);
+        final result = await Process.run('chmod', ['700', prootFile.path]);
         if (result.exitCode == 0) {
           print('EnvironmentManager: Successfully set permissions with chmod');
           success = true;
@@ -483,4 +485,4 @@ class EnvironmentManager {
       'rootfsExists': Directory('${_usrPath}/bin').existsSync(),
     };
   }
-} 
+}

@@ -72,4 +72,20 @@ class PathProviderNative {
     await ensureDirectoryExists();
     return path;
   }
+
+  /// Get a code-cache directory appropriate for placing executable files.
+  /// On Android this maps to /data/user/0/<package>/code_cache/prominal
+  static Future<String> getExecutableCacheDirectoryAsync() async {
+    if (Platform.isAndroid) {
+      const packageName = 'com.prominal';
+      final base = '/data/user/0/$packageName/code_cache/prominal';
+      final dir = Directory(base);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      return base;
+    }
+    // Fallback to application support on other platforms
+    return getApplicationSupportDirectoryAsync();
+  }
 } 
