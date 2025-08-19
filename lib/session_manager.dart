@@ -5,13 +5,13 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
 import 'package:prominal/environment_manager.dart';
-import 'package:pty/pty.dart';
+import 'pty_adapter.dart';
 
 /// A data class to hold all components of a single terminal session.
 class TerminalSession {
   final int id;
   final Terminal terminal;
-  final PseudoTerminal pty;
+  final PlatformPty pty;
   String title;
 
   TerminalSession({
@@ -84,7 +84,7 @@ class SessionManager extends ChangeNotifier {
             ? (Platform.environment['USERPROFILE'] ?? _envManager.homePath)
             : (Platform.environment['HOME'] ?? _envManager.homePath));
     
-    final pty = await PseudoTerminal.start(
+    final pty = await startPlatformPty(
       actualCommand.first,
       actualCommand.length > 1 ? actualCommand.sublist(1) : [],
       workingDirectory: cwd,
@@ -157,7 +157,7 @@ class SessionManager extends ChangeNotifier {
     // Convert the command to run through shell
     final shellCommand = ['sh', '-c', originalCommand.join(' ')];
     
-    final pty = await PseudoTerminal.start(
+    final pty = await startPlatformPty(
       shellCommand.first,
       shellCommand.length > 1 ? shellCommand.sublist(1) : [],
       workingDirectory: Platform.environment['HOME'] ?? _envManager.homePath,

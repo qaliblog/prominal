@@ -8,12 +8,12 @@ class PathProviderNative {
     if (Platform.isAndroid) {
       // Android: Use external storage or internal app directory
       final externalStorage = Platform.environment['EXTERNAL_STORAGE'];
+      const packageName = 'com.prominal';
       if (externalStorage != null) {
-        return '$externalStorage/Android/data/com.prominal.app/files';
-      } else {
-        // Fallback to internal storage
-        return '/data/data/com.prominal.app/files';
+        return '$externalStorage/Android/data/$packageName/files';
       }
+      // Fallback to internal storage (may not be accessible on all devices/emulators)
+      return '/data/data/$packageName/files';
     } else if (Platform.isIOS) {
       // iOS: Use app's Documents directory
       final home = Platform.environment['HOME'];

@@ -103,9 +103,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // 1. Prepare the files on the Dart side (copying, unpacking, etc.).
       // Add timeout to prevent hanging
       await widget.environmentManager.setupEnvironment().timeout(
-        const Duration(minutes: 5),
+        const Duration(minutes: 30),
         onTimeout: () {
-          throw Exception("Setup timed out after 5 minutes. Please check your device storage and try again.");
+          throw Exception("Setup timed out after 30 minutes. Please check your device storage and try again.");
         },
       );
       
@@ -121,11 +121,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       print("Prominal: Setup session created");
       
       // Start a timeout timer for the setup session
-      _setupTimeoutTimer = Timer(const Duration(minutes: 10), () {
+      _setupTimeoutTimer = Timer(const Duration(minutes: 30), () {
         if (_isSetupInProgress && mounted) {
           print("Prominal: Setup session timeout - session may be hanging");
           setState(() {
-            _setupError = "Setup session is taking too long (10+ minutes). The bootstrap script may be hanging. Try resetting the environment.";
+            _setupError = "Setup session is taking too long (30+ minutes). The bootstrap script may be hanging. Try resetting the environment.";
             _isSetupInProgress = false;
           });
         }
