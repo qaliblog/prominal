@@ -396,30 +396,45 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     // Show setup progress
     if (_isSetupInProgress) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            const Text("Performing one-time setup..."),
-            const SizedBox(height: 8),
-            const Text(
-              "Extracting Debian rootfs (this may take 2-5 minutes)",
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+      return StreamBuilder(
+        stream: widget.environmentManager.progressStream,
+        builder: (context, snapshot) {
+          final data = snapshot.data;
+          String stageText = 'Setting up...';
+          double? progress;
+          String? detail;
+          if (data is SetupProgress) {
+            if (data.error != null) stageText = 'Error: ${data.error}';
+            else if (data.stage != null) stageText = data.stage!;
+            if (data.current != null && data.total != null && data.total! > 0) {
+              progress = data.current! / data.total!;
+            }
+            detail = data.detail;
+          }
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  height: 8,
+                  child: LinearProgressIndicator(value: progress),
+                ),
+                const SizedBox(height: 12),
+                Text(stageText),
+                if (detail != null) ...[
+                  const SizedBox(height: 4),
+                  Text(detail!, style: const TextStyle(fontSize: 12, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+                const SizedBox(height: 12),
+                Text(
+                  'Rootfs: ${widget.environmentManager.getEnvironmentStatus()['rootfsExists'] == true ? 'present' : 'missing'}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            const Text(
-              "Please be patient - the app may appear unresponsive during extraction",
-              style: TextStyle(fontSize: 10, color: Colors.orange),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Status: ${widget.environmentManager.getEnvironmentStatus()['rootfsExists'] == true ? 'rootfs present' : 'rootfs missing'}',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
+          );
+        },
       );
     }
     

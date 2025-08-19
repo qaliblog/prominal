@@ -23,6 +23,10 @@ class EnvironmentManager {
   
   EnvironmentManager._();
   
+  // Progress stream for setup UI
+  final StreamController<SetupProgress> _progressController = StreamController<SetupProgress>.broadcast();
+  Stream<SetupProgress> get progressStream => _progressController.stream;
+  
   /// Initialize the environment manager
   static Future<EnvironmentManager> init() async {
     final instance = EnvironmentManager._();
@@ -68,8 +72,8 @@ class EnvironmentManager {
     }
     final setupFlag = File('${_appDataPath}/$_setupFlagFile');
     final flagExists = setupFlag.existsSync();
-    // Consider setup incomplete if rootfs core bin directory is missing
-    final hasRootfs = Directory('${_usrPath}/bin').existsSync();
+    // Consider setup incomplete if rootfs core directories are missing
+    final hasRootfs = Directory('${_usrPath}/bin').existsSync() || Directory('${_usrPath}/usr/bin').existsSync();
     if (_isArm64DeviceSync()) {
       return flagExists && hasRootfs;
     }
@@ -103,19 +107,25 @@ class EnvironmentManager {
     }
 
     print('EnvironmentManager: Starting environment setup...');
+    _progressController.add(SetupProgress.stage('Starting setup'));
     try {
+      _progressController.add(SetupProgress.stage('Extracting proot and libs'));
       await _extractProotAndLibs();
-      await _extractRootfsInBackground();
+      _progressController.add(SetupProgress.stage('Extracting rootfs'));
+      await _extractRootfsWithProgress();
+      _progressController.add(SetupProgress.stage('Applying permissions'));
       await _setupPermissions();
       await _createSetupFlag();
       // Validate rootfs was extracted
-      final hasRootfs = Directory('${_usrPath}/bin').existsSync();
+      final hasRootfs = Directory('${_usrPath}/bin').existsSync() || Directory('${_usrPath}/usr/bin').existsSync();
       if (!hasRootfs) {
         throw Exception('Rootfs extraction did not complete: ${_usrPath}/bin missing');
       }
       print('EnvironmentManager: Environment setup completed successfully');
+      _progressController.add(SetupProgress.stage('Setup complete'));
     } catch (e) {
       print('EnvironmentManager: Setup failed: $e');
+      _progressController.add(SetupProgress.error(e.toString()));
       rethrow;
     }
   }
@@ -167,70 +177,87 @@ class EnvironmentManager {
     }
   }
   
-  /// Extract the Debian rootfs archive in a background thread
-  Future<void> _extractRootfsInBackground() async {
+  /// Extract the Debian rootfs archive in an isolate with progress updates
+  Future<void> _extractRootfsWithProgress() async {
     print('EnvironmentManager: Extracting Debian rootfs in background...');
-    
-    // Load the asset data in the main thread first
     final bytes = await rootBundle.load('assets/$_rootfsArchive');
     final archiveBytes = bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
-    
-    // Use compute to run heavy extraction in background
-    await compute(_extractRootfsIsolate, {
+    final port = ReceivePort();
+    await Isolate.spawn(_extractRootfsIsolateWithProgress, {
       'archiveBytes': archiveBytes,
       'usrPath': _usrPath,
+      'sendPort': port.sendPort,
     });
-    
+    await for (final message in port) {
+      if (message is Map && message['type'] == 'done') {
+        port.close();
+        break;
+      }
+      if (message is Map && message['type'] == 'progress') {
+        _progressController.add(SetupProgress.progress(
+          current: message['current'] as int? ?? 0,
+          total: message['total'] as int? ?? 0,
+          detail: message['name'] as String?,
+        ));
+      }
+      if (message is Map && message['type'] == 'stage') {
+        _progressController.add(SetupProgress.stage(message['message'] as String? ?? ''));
+      }
+      if (message is Map && message['type'] == 'error') {
+        _progressController.add(SetupProgress.error(message['message'] as String? ?? 'error'));
+      }
+    }
     print('EnvironmentManager: Rootfs extraction completed');
   }
   
-  /// Static method for isolate to extract rootfs
-  static Future<void> _extractRootfsIsolate(Map<String, dynamic> params) async {
+  /// Isolate function to extract rootfs with progress
+  static Future<void> _extractRootfsIsolateWithProgress(Map<String, dynamic> params) async {
     final archiveBytes = params['archiveBytes'] as Uint8List;
     final usrPath = params['usrPath'] as String;
+    final SendPort sendPort = params['sendPort'] as SendPort;
     
     try {
-      // Decompress XZ using the archive package
+      sendPort.send({'type': 'stage', 'message': 'Decompressing XZ'});
       final decompressed = XZDecoder().decodeBytes(archiveBytes);
       
-      // Extract TAR
-      final archive = TarDecoder().decodeBytes(decompressed);
+      sendPort.send({'type': 'stage', 'message': 'Reading TAR entries'});
+      final tarDecoder = TarDecoder();
+      final archive = tarDecoder.decodeBytes(decompressed);
+      final totalFiles = archive.where((f) => f.isFile).length;
+      int current = 0;
       
-      // Extract files to usr directory
-      int fileCount = 0;
       for (final file in archive) {
         if (file.isFile) {
           final filePath = '$usrPath/${file.name}';
-          final fileDir = Directory(filePath.substring(0, filePath.lastIndexOf('/')));
-          
+          final dirPath = filePath.contains('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : usrPath;
+          final fileDir = Directory(dirPath);
           if (!await fileDir.exists()) {
             await fileDir.create(recursive: true);
           }
-          
-          final fileFile = File(filePath);
-          await fileFile.writeAsBytes(file.content as List<int>);
-          
-          // Set executable bit if the file is executable in the tar entry
+          final outFile = File(filePath);
+          await outFile.writeAsBytes(file.content as List<int>);
           final mode = file.mode;
-          if (mode != null && (mode & 0x49) != 0) { // 0x49 = 0o111 (any execute bit)
-            try {
-              await Process.run('chmod', ['+x', fileFile.path]);
-            } catch (e) {
-              // Ignore errors here
-            }
+          if (mode != null && (mode & 0x49) != 0) {
+            try { await Process.run('chmod', ['+x', outFile.path]); } catch (_) {}
           }
-          
-          fileCount++;
-          if (fileCount % 100 == 0) {
-            print('EnvironmentManager: Extracted $fileCount files...');
+          current++;
+          if (current % 50 == 0 || current == totalFiles) {
+            sendPort.send({'type': 'progress', 'current': current, 'total': totalFiles, 'name': file.name});
+          }
+        } else {
+          // Create directories explicitly
+          final name = file.name;
+          if (name.isNotEmpty && name.endsWith('/')) {
+            final dir = Directory('$usrPath/${name.substring(0, name.length - 1)}');
+            if (!await dir.exists()) {
+              try { await dir.create(recursive: true); } catch (_) {}
+            }
           }
         }
       }
-      
-      print('EnvironmentManager: Extracted $fileCount files total');
+      sendPort.send({'type': 'done'});
     } catch (e) {
-      print('EnvironmentManager: Rootfs extraction failed: $e');
-      rethrow;
+      sendPort.send({'type': 'error', 'message': e.toString()});
     }
   }
   
@@ -550,7 +577,22 @@ class EnvironmentManager {
       'prootPath': _prootPath,
       'libPath': _libPath,
       'prootBinaryExists': File('${_prootPath}/$_prootBinary').existsSync(),
-      'rootfsExists': Directory('${_usrPath}/bin').existsSync(),
+      'rootfsExists': Directory('${_usrPath}/bin').existsSync() || Directory('${_usrPath}/usr/bin').existsSync(),
     };
   }
+}
+
+class SetupProgress {
+  final String? stage;
+  final int? current;
+  final int? total;
+  final String? detail;
+  final String? error;
+  
+  SetupProgress._({this.stage, this.current, this.total, this.detail, this.error});
+  
+  factory SetupProgress.stage(String stage) => SetupProgress._(stage: stage);
+  factory SetupProgress.progress({required int current, required int total, String? detail}) =>
+      SetupProgress._(current: current, total: total, detail: detail);
+  factory SetupProgress.error(String error) => SetupProgress._(error: error);
 }
