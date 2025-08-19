@@ -157,7 +157,10 @@ class SessionManager extends ChangeNotifier {
       if (index != -1) {
         final session = _sessions[index];
         session.terminal
-            .write('\r\n\r\n[Process completed with exit code: ${code}]');
+            .write('\r\n\r\n[Process completed with exit code: ${code}]\r\n');
+        // If there was no visible output, show command and env summary for debugging
+        session.terminal.write('Command: ${actualCommand.join(' ')}\r\n');
+        session.terminal.write('Env: TERM=${env['TERM']} HOME=${env['HOME']}\r\n');
         session.title = '[Exited ${code}] ${session.title}';
         notifyListeners();
       }
