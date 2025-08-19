@@ -162,11 +162,22 @@ class SessionManager extends ChangeNotifier {
         notifyListeners();
       }
       
-      // If proot failed with permission denied, try shell approach
+      // If proot failed with permission denied or transport errors, try shell approach
       if ((code == -117 || code == 126 || code == -6 || code == -120 || code == -121) && command.first.contains('proot')) {
         print("SessionManager: Proot failed, trying shell approach...");
-        await Future.delayed(const Duration(seconds: 1));
+        await Future.delayed(const Duration(milliseconds: 400));
         await _createProotSessionWithShell(command);
+        return;
+      }
+      // If all else fails or quick-exit persists, try host Android shell as last resort
+      if ((code == -120 || code == -121 || code == 126) && Platform.isAndroid) {
+        print('SessionManager: Falling back to host Android shell');
+        await Future.delayed(const Duration(milliseconds: 300));
+        await createNewSession(
+          command: _envManager.getAndroidHostShellCommand(),
+          title: 'Android Shell',
+        );
+        return;
       }
       // If login shell exits immediately, try a simpler /bin/sh
       if ((code == 0 || code == 1) && (title == null || title == 'Shell')) {
