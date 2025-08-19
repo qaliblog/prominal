@@ -6,14 +6,14 @@ class PathProviderNative {
   /// Get the application support directory path for the current platform
   static String getApplicationSupportDirectory() {
     if (Platform.isAndroid) {
-      // Android: Use external storage or internal app directory
-      final externalStorage = Platform.environment['EXTERNAL_STORAGE'];
+      // Android: Always use internal app-private storage so we can execute binaries.
       const packageName = 'com.prominal';
-      if (externalStorage != null) {
-        return '$externalStorage/Android/data/$packageName/files';
+      final primary = '/data/user/0/$packageName/files';
+      final legacy = '/data/data/$packageName/files';
+      if (Directory(primary).existsSync()) {
+        return primary;
       }
-      // Fallback to internal storage (may not be accessible on all devices/emulators)
-      return '/data/data/$packageName/files';
+      return legacy;
     } else if (Platform.isIOS) {
       // iOS: Use app's Documents directory
       final home = Platform.environment['HOME'];
