@@ -493,12 +493,28 @@ class EnvironmentManager {
     List<String> shellArgs = const [],
   }) {
     final prootBinary = '${_prootPath}/$_prootBinary';
+    // On some Android devices, executing from app storage can be noexec.
+    // Execute proot via the system linker to bypass mount exec restrictions.
+    List<String> launcher = [prootBinary];
+    try {
+      if (Platform.isAndroid) {
+        String linker = '/system/bin/linker64';
+        if (!File(linker).existsSync()) {
+          final alt = '/apex/com.android.runtime/bin/linker64';
+          if (File(alt).existsSync()) linker = alt;
+        }
+        if (File(linker).existsSync()) {
+          launcher = [linker, prootBinary];
+          print('EnvironmentManager: Using linker launcher: ' + linker);
+        }
+      }
+    } catch (_) {}
     // On some Android versions, direct exec may be blocked. We'll still try direct,
     // and the session manager will fall back to `sh -lc` if exec fails.
     
     // Build the proot command (more robust defaults)
     final command = [
-      prootBinary,
+      ...launcher,
       '-S', rootfsPath,
       '-0',
       '-w', '/root',
