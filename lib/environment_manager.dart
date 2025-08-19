@@ -237,6 +237,15 @@ class EnvironmentManager {
       }
     }
     print('EnvironmentManager: Rootfs extraction completed');
+    // Ensure minimal login shell exists
+    try {
+      final root = getComputedRootfsPath();
+      final bash = File('$root/bin/bash');
+      final sh = File('$root/bin/sh');
+      if (!await bash.exists() && await sh.exists()) {
+        try { await Process.run('sh', ['-c', 'ln -sf sh "$root/bin/bash"']); } catch (_) {}
+      }
+    } catch (_) {}
   }
   
   /// Isolate function to extract rootfs with progress
