@@ -571,16 +571,9 @@ class EnvironmentManager {
     required String shellPath,
     List<String> shellArgs = const [],
   }) {
-    final prootBinary = _selectProotBinary();
-    final isStatic = prootBinary.contains('static');
-    String linker = '/system/bin/linker64';
-    if (!File(linker).existsSync()) {
-      final alt = '/apex/com.android.runtime/bin/linker64';
-      if (File(alt).existsSync()) linker = alt;
-    }
-    final dynamicLauncher = (!isStatic && File(linker).existsSync())
-        ? '$linker ${_shellQuote(prootBinary)}'
-        : _shellQuote(prootBinary);
+    // Prefer static proot to avoid dynamic loader issues
+    final prootBinary = '$_prootPath/$_prootBinary';
+    final launcher = _shellQuote(prootBinary);
 
     // Build common proot args (quoted for shell -c)
     final binds = [
@@ -611,11 +604,12 @@ class EnvironmentManager {
 
     final shellArgsQuoted = shellArgs.map(_shellQuote).join(' ');
     final prootArgs = [
-      '-S ${_shellQuote(rootfsPath)}',
+      '-R ${_shellQuote(rootfsPath)}',
       '-0',
       '-w /root',
       bindArgs,
-      '/usr/bin/env -i',
+      '--',
+      '/usr/bin/env', '-i',
       envInside,
       _shellQuote(shellPath),
       shellArgsQuoted,
@@ -632,7 +626,7 @@ class EnvironmentManager {
       'export PROOT_NO_SECCOMP=1',
       'export PROOT_TMP_DIR=$tmpDirExport',
       'export TMPDIR=$tmpDirExport',
-      'exec $dynamicLauncher $prootArgs || exec $staticPath $prootArgs',
+      'exec $launcher $prootArgs',
     ].join('; ');
 
     if (Platform.isAndroid) {
