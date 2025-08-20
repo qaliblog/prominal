@@ -1,0 +1,209 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:xterm/xterm.dart';
+import 'environment_manager.dart';
+import 'pty_adapter.dart';
+
+/// Represents a single terminal session with its associated PTY and terminal widget.
+class TerminalSession {
+  final String id;
+  final String title;
+  final Terminal terminal;
+  final PlatformPty pty;
+  final DateTime createdAt;
+  bool _isActive = false;
+
+  TerminalSession({
+    required this.id,
+    required this.title,
+    required this.terminal,
+    required this.pty,
+  }) : createdAt = DateTime.now();
+
+  bool get isActive => _isActive;
+  void setActive(bool active) => _isActive = active;
+
+  void dispose() {
+    pty.kill();
+  }
+}
+
+/// Manages multiple terminal sessions and provides a unified interface for
+/// creating, switching between, and managing terminal sessions.
+class SessionManager extends ChangeNotifier {
+  static final SessionManager _instance = SessionManager._internal();
+  static SessionManager get instance => _instance;
+
+  SessionManager._internal();
+
+  final List<TerminalSession> _sessions = [];
+  TerminalSession? _activeSession;
+  EnvironmentManager? _environmentManager;
+
+  /// Initialize the session manager with the environment manager
+  void initialize(EnvironmentManager environmentManager) {
+    _environmentManager = environmentManager;
+  }
+
+  /// Get all sessions
+  List<TerminalSession> get sessions => List.unmodifiable(_sessions);
+
+  /// Get the currently active session
+  TerminalSession? get activeSession => _activeSession;
+
+  /// Check if there are any sessions
+  bool get hasSessions => _sessions.isNotEmpty;
+
+  /// Create a new terminal session
+  Future<TerminalSession> createNewSession({
+    String? command,
+    String? title,
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async {
+    if (_environmentManager == null) {
+      throw StateError('SessionManager not initialized');
+    }
+
+    final sessionId = _generateSessionId();
+    final sessionTitle = title ?? 'Terminal ${_sessions.length + 1}';
+    final workingDir = workingDirectory ?? _environmentManager!.homePath;
+    final env = environment ?? _getDefaultEnvironment();
+
+    // Create terminal widget
+    final terminal = Terminal(
+      maxLines: 10000,
+      platform: TerminalPlatform.web,
+    );
+
+    // Start PTY
+    final pty = await startPlatformPty(
+      command ?? '/bin/bash',
+      command != null ? [] : ['-l'],
+      workingDirectory: workingDir,
+      environment: env,
+    );
+
+    // Create session
+    final session = TerminalSession(
+      id: sessionId,
+      title: sessionTitle,
+      terminal: terminal,
+      pty: pty,
+    );
+
+    // Add to sessions list
+    _sessions.add(session);
+
+    // Set as active if this is the first session
+    if (_sessions.length == 1) {
+      setActiveSession(sessionId);
+    }
+
+    // Set up data flow between PTY and terminal
+    _setupSessionDataFlow(session);
+
+    notifyListeners();
+    return session;
+  }
+
+  /// Set the active session
+  void setActiveSession(String sessionId) {
+    final session = _sessions.firstWhere(
+      (s) => s.id == sessionId,
+      orElse: () => throw ArgumentError('Session not found: $sessionId'),
+    );
+
+    if (_activeSession != null) {
+      _activeSession!.setActive(false);
+    }
+
+    _activeSession = session;
+    session.setActive(true);
+    notifyListeners();
+  }
+
+  /// Close a session
+  void closeSession(String sessionId) {
+    final sessionIndex = _sessions.indexWhere((s) => s.id == sessionId);
+    if (sessionIndex == -1) return;
+
+    final session = _sessions[sessionIndex];
+    session.dispose();
+    _sessions.removeAt(sessionIndex);
+
+    // If we closed the active session, switch to another one
+    if (_activeSession?.id == sessionId) {
+      if (_sessions.isNotEmpty) {
+        setActiveSession(_sessions.first.id);
+      } else {
+        _activeSession = null;
+      }
+    }
+
+    notifyListeners();
+  }
+
+  /// Get default environment variables
+  Map<String, String> _getDefaultEnvironment() {
+    final env = Map<String, String>.from(Platform.environment);
+    
+    // Set up basic environment for the terminal
+    env['TERM'] = 'xterm-256color';
+    env['HOME'] = _environmentManager?.homePath ?? '/home';
+    env['PWD'] = _environmentManager?.homePath ?? '/home';
+    env['USER'] = 'user';
+    env['SHELL'] = '/bin/bash';
+    
+    return env;
+  }
+
+  /// Generate a unique session ID
+  String _generateSessionId() {
+    return DateTime.now().millisecondsSinceEpoch.toString();
+  }
+
+  /// Set up data flow between PTY and terminal
+  void _setupSessionDataFlow(TerminalSession session) {
+    // PTY output -> Terminal
+    session.pty.out.listen(
+      (data) {
+        session.terminal.write(data);
+      },
+      onError: (error) {
+        print('PTY output error: $error');
+      },
+      onDone: () {
+        print('PTY output stream closed');
+      },
+    );
+
+    // Terminal input -> PTY
+    session.terminal.onOutput.listen(
+      (data) {
+        session.pty.write(String.fromCharCodes(data));
+      },
+      onError: (error) {
+        print('Terminal output error: $error');
+      },
+    );
+
+    // Handle terminal resize
+    session.terminal.onResize.listen(
+      (size) {
+        session.pty.resize(size.$2, size.$1);
+      },
+    );
+  }
+
+  /// Dispose all sessions
+  void dispose() {
+    for (final session in _sessions) {
+      session.dispose();
+    }
+    _sessions.clear();
+    _activeSession = null;
+    super.dispose();
+  }
+}
