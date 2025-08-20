@@ -289,6 +289,11 @@ class EnvironmentManager {
       print('EnvironmentManager: proot test run failed: $e');
     }
   }
+
+  /// Backwards-compatibility wrapper for older references
+  Future<void> _extractProotBinaries() async {
+    await _extractProotAndLibs();
+  }
   
   /// Extract the Debian rootfs archive in an isolate with progress updates
   Future<void> _extractRootfsWithProgress() async {
