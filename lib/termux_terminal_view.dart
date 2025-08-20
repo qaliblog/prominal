@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:termux_view/termux_view.dart';
+import 'package:xterm/xterm.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 
-/// A terminal view widget that uses Termux for better Android terminal experience
+/// A terminal view widget with enhanced UI for better Android terminal experience
 class TermuxTerminalView extends StatefulWidget {
   final String sessionId;
   final Function(String) onOutput;
@@ -25,7 +25,7 @@ class TermuxTerminalView extends StatefulWidget {
 }
 
 class _TermuxTerminalViewState extends State<TermuxTerminalView> {
-  late final TermuxViewController _controller;
+  late final Terminal _terminal;
   late final FocusNode _focusNode;
   bool _isInitialized = false;
 
@@ -44,19 +44,17 @@ class _TermuxTerminalViewState extends State<TermuxTerminalView> {
 
   Future<void> _initializeTerminal() async {
     try {
-      _controller = TermuxViewController();
+      _terminal = Terminal(
+        maxLines: 10000,
+      );
       
       // Set up terminal callbacks
-      _controller.onOutput = (data) {
-        widget.onOutput(data);
+      _terminal.onOutput = (data) {
+        widget.onOutput(String.fromCharCodes(data));
       };
 
-      _controller.onResize = (width, height) {
+      _terminal.onResize = (width, height) {
         widget.onResize(width, height);
-      };
-
-      _controller.onExit = (exitCode) {
-        print('Termux terminal exited with code: $exitCode');
       };
 
       setState(() {
@@ -70,7 +68,7 @@ class _TermuxTerminalViewState extends State<TermuxTerminalView> {
         });
       }
     } catch (e) {
-      print('Failed to initialize Termux terminal: $e');
+      print('Failed to initialize enhanced terminal: $e');
     }
   }
 
