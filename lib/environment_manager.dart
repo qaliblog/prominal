@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:isolate';
 import 'dart:async';
@@ -181,9 +182,42 @@ class EnvironmentManager {
   Future<void> _extractProotAndLibs() async {
     print('EnvironmentManager: Extracting proot and libraries...');
     
+    // Determine best proot asset
+    String prootAssetName = _prootBinary;
+    try {
+      final manifestRaw = await rootBundle.loadString('AssetManifest.json');
+      final manifest = jsonDecode(manifestRaw);
+      Iterable keys;
+      if (manifest is Map<String, dynamic>) {
+        keys = manifest.keys;
+      } else if (manifest is List) {
+        keys = manifest.cast<String>();
+      } else {
+        keys = const <String>[];
+      }
+      // Prefer non-static android aarch64 builds
+      String? chosen;
+      for (final k in keys) {
+        final key = k.toString();
+        if (key.startsWith('assets/') && key.toLowerCase().contains('proot') && key.toLowerCase().contains('aarch64')) {
+          if (!key.toLowerCase().contains('static')) {
+            chosen = key.substring('assets/'.length);
+            break;
+          }
+          chosen ??= key.substring('assets/'.length);
+        }
+      }
+      if (chosen != null) {
+        prootAssetName = chosen;
+      }
+    } catch (e) {
+      print('EnvironmentManager: Failed to parse AssetManifest: $e');
+    }
+    print('EnvironmentManager: Using proot asset: $prootAssetName');
+    
     // List of files to extract from assets
     final filesToExtract = [
-      _prootBinary,
+      prootAssetName,
       'ld-linux-aarch64.so.1',
       'libanl.so.1',
       'libBrokenLocale.so.1',
@@ -201,7 +235,7 @@ class EnvironmentManager {
         await file.writeAsBytes(bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes));
         
         // Make executable if it's the proot binary
-        if (fileName == _prootBinary || fileName == 'loader' || fileName == 'loader32') {
+        if (fileName == prootAssetName || fileName == _prootBinary || fileName == 'loader' || fileName == 'loader32') {
           try {
             await Process.run('chmod', ['700', file.path]);
           } catch (e) {
