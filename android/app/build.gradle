@@ -64,4 +64,7 @@ flutter {
     source '../..'
 }
 
-// No explicit dependencies required; Flutter and AGP manage Kotlin stdlib.
+dependencies {
+    implementation 'com.termux:termux-view:0.1.0'
+    implementation 'com.termux:termux-shared:0.1.0'
+}
