@@ -42,7 +42,7 @@ class TermuxViewPlugin: FlutterPlugin, MethodCallHandler {
     }
 }
 
-class TermuxViewFactory(private val textureRegistry: TextureRegistry) : PlatformViewFactory(Any::class.java) {
+class TermuxViewFactory(private val textureRegistry: TextureRegistry) : PlatformViewFactory(io.flutter.plugin.common.StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
         val creationParams = args as Map<String?, Any?>?
         return TermuxView(context, viewId, creationParams, textureRegistry)
