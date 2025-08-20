@@ -234,4 +234,10 @@ class SessionManager extends ChangeNotifier {
     _activeSession = null;
     super.dispose();
   }
+
+  String _shellQuote(String input) {
+    if (input.isEmpty) return "''";
+    if (!input.contains("'")) return "'" + input + "'";
+    return "'" + input.replaceAll("'", "'\\''") + "'";
+  }
 }
