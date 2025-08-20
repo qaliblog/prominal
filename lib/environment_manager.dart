@@ -615,7 +615,7 @@ class EnvironmentManager {
       '-0',
       '-w /root',
       bindArgs,
-      '-- /usr/bin/env -i',
+      '/usr/bin/env -i',
       envInside,
       _shellQuote(shellPath),
       shellArgsQuoted,
@@ -627,6 +627,9 @@ class EnvironmentManager {
     final tmpDirExport = _shellQuote(_tmpPath);
     final launcherScript = [
       'export LD_LIBRARY_PATH=$ldPre:${r'${LD_LIBRARY_PATH}'}',
+      'export PROOT_LOADER=/proot/loader',
+      'export PROOT_LOADER32=/proot/loader32',
+      'export PROOT_NO_SECCOMP=1',
       'export PROOT_TMP_DIR=$tmpDirExport',
       'export TMPDIR=$tmpDirExport',
       'exec $dynamicLauncher $prootArgs || exec $staticPath $prootArgs',
