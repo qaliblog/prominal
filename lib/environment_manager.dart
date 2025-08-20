@@ -571,9 +571,17 @@ class EnvironmentManager {
     required String shellPath,
     List<String> shellArgs = const [],
   }) {
-    // Prefer static proot to avoid dynamic loader issues
-    final prootBinary = '$_prootPath/$_prootBinary';
-    final launcher = _shellQuote(prootBinary);
+    // Prefer dynamic proot if available, launched via system linker; fallback to static
+    String prootBinary = _selectProotBinary();
+    bool isStatic = prootBinary.contains('static');
+    String linker = '/system/bin/linker64';
+    if (!File(linker).existsSync()) {
+      final alt = '/apex/com.android.runtime/bin/linker64';
+      if (File(alt).existsSync()) linker = alt;
+    }
+    final launcher = (!isStatic && File(linker).existsSync())
+        ? _shellQuote(linker) + ' ' + _shellQuote(prootBinary)
+        : _shellQuote('$_prootPath/$_prootBinary');
 
     // Build common proot args (quoted for shell -c)
     final binds = [
@@ -604,7 +612,7 @@ class EnvironmentManager {
 
     final shellArgsQuoted = shellArgs.map(_shellQuote).join(' ');
     final prootArgs = [
-      '-R ${_shellQuote(rootfsPath)}',
+      '-S ${_shellQuote(rootfsPath)}',
       '-0',
       '-w /root',
       bindArgs,
