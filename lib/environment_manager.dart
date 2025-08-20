@@ -516,12 +516,21 @@ class EnvironmentManager {
         print('EnvironmentManager: Initial proot cmd will use ${_prootPath}/$_prootBinary');
         final rootfs = getComputedRootfsPath();
         print('EnvironmentManager: Computed rootfs path: ' + rootfs);
-        final shellPath = File('$rootfs/bin/bash').existsSync()
-            ? '/bin/bash'
-            : (File('$rootfs/bin/sh').existsSync() ? '/bin/sh' : '/usr/bin/env');
-        final shellArgs = (shellPath == '/usr/bin/env')
-            ? ['sh', '--login']
-            : ['--login'];
+        String shellPath;
+        List<String> shellArgs;
+        if (File('$rootfs/bin/bash').existsSync()) {
+          shellPath = '/bin/bash';
+          shellArgs = ['--login'];
+        } else if (File('$rootfs/bin/sh').existsSync()) {
+          shellPath = '/bin/sh';
+          shellArgs = ['--login'];
+        } else if (File('$rootfs/usr/bin/sh').existsSync()) {
+          shellPath = '/usr/bin/sh';
+          shellArgs = ['--login'];
+        } else {
+          shellPath = '/system/bin/sh';
+          shellArgs = [];
+        }
         return getProotCommandWithFallback(
           rootfsPath: rootfs,
           shellPath: shellPath,
