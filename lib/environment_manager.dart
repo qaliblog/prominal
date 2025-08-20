@@ -122,6 +122,22 @@ class EnvironmentManager {
   
   /// Get the lib path
   String get libPath => _libPath;
+
+  /// Choose best available proot binary in prootPath directory
+  String _selectProotBinary() {
+    final dir = Directory(_prootPath);
+    if (!dir.existsSync()) return '$_prootPath/$_prootBinary';
+    final entries = dir.listSync().whereType<File>().map((f) => f.path).toList();
+    // Prefer non-static builds (PIE) if present
+    final dynamicCandidates = entries.where((p) => RegExp(r"proot[^/]*$").hasMatch(p) && !p.contains('static')).toList();
+    if (dynamicCandidates.isNotEmpty) return dynamicCandidates.first;
+    // Fallback to known static asset name
+    final staticPath = '$_prootPath/$_prootBinary';
+    if (File(staticPath).existsSync()) return staticPath;
+    // Fallback to any proot-like file
+    final any = entries.firstWhere((p) => p.contains('proot'), orElse: () => staticPath);
+    return any;
+  }
   
   /// Setup the complete environment
   Future<void> setupEnvironment() async {
@@ -492,7 +508,7 @@ class EnvironmentManager {
     required String shellPath,
     List<String> shellArgs = const [],
   }) {
-    final prootBinary = '${_prootPath}/$_prootBinary';
+    final prootBinary = _selectProotBinary();
     // On some Android devices, executing from app storage can be noexec.
     // Execute proot via the system linker to bypass mount exec restrictions.
     List<String> launcher = [prootBinary];
@@ -504,8 +520,13 @@ class EnvironmentManager {
           if (File(alt).existsSync()) linker = alt;
         }
         if (File(linker).existsSync()) {
-          launcher = [linker, prootBinary];
-          print('EnvironmentManager: Using linker launcher: ' + linker);
+          // Use linker only for dynamic builds; static builds fail with unexpected e_type
+          if (!prootBinary.contains('static')) {
+            launcher = [linker, prootBinary];
+            print('EnvironmentManager: Using linker launcher: ' + linker);
+          } else {
+            launcher = [prootBinary];
+          }
         }
       }
     } catch (_) {}
@@ -544,6 +565,7 @@ class EnvironmentManager {
       'PROOT_LOADER32=/proot/loader32',
       'PROOT_TMP_DIR=/tmp',
       // On some Androids system libs preload; explicitly empty LD_PRELOAD
+      // No preloads in child; append none
       'LD_PRELOAD=',
       shellPath,
       ...shellArgs,
