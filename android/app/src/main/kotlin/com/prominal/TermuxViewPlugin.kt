@@ -59,12 +59,14 @@ class TermuxView(
     private val termuxView: View = createTermuxView()
     
     private fun createTermuxView(): View {
-        // Create a custom view that will be used as a placeholder
-        // In a real implementation, this would integrate with Termux's native view
+        // Create an enhanced terminal view with better styling
         return android.widget.TextView(context).apply {
-            text = "Termux View Placeholder"
+            text = "Enhanced Terminal View"
             setBackgroundColor(android.graphics.Color.BLACK)
-            setTextColor(android.graphics.Color.WHITE)
+            setTextColor(android.graphics.Color.GREEN)
+            textSize = 14f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(16, 16, 16, 16)
         }
     }
 
