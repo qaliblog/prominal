@@ -57,7 +57,7 @@ class SessionManager extends ChangeNotifier {
 
   /// Create a new terminal session
   Future<TerminalSession> createNewSession({
-    String? command,
+    dynamic command, // Can be String or List<String>
     String? title,
     String? workingDirectory,
     Map<String, String>? environment,
@@ -74,13 +74,29 @@ class SessionManager extends ChangeNotifier {
     // Create terminal widget
     final terminal = Terminal(
       maxLines: 10000,
-      platform: TerminalPlatform.web,
     );
+
+    // Parse command and arguments
+    String executable;
+    List<String> arguments;
+    
+    if (command == null) {
+      executable = '/bin/bash';
+      arguments = ['-l'];
+    } else if (command is String) {
+      executable = command;
+      arguments = [];
+    } else if (command is List<String>) {
+      executable = command.first;
+      arguments = command.skip(1).toList();
+    } else {
+      throw ArgumentError('Command must be String or List<String>');
+    }
 
     // Start PTY
     final pty = await startPlatformPty(
-      command ?? '/bin/bash',
-      command != null ? [] : ['-l'],
+      executable,
+      arguments,
       workingDirectory: workingDir,
       environment: env,
     );
@@ -169,7 +185,7 @@ class SessionManager extends ChangeNotifier {
     // PTY output -> Terminal
     session.pty.out.listen(
       (data) {
-        session.terminal.write(data);
+        session.terminal.write(String.fromCharCodes(data));
       },
       onError: (error) {
         print('PTY output error: $error');
@@ -180,21 +196,14 @@ class SessionManager extends ChangeNotifier {
     );
 
     // Terminal input -> PTY
-    session.terminal.onOutput.listen(
-      (data) {
-        session.pty.write(String.fromCharCodes(data));
-      },
-      onError: (error) {
-        print('Terminal output error: $error');
-      },
-    );
+    session.terminal.onOutput = (data) {
+      session.pty.write(String.fromCharCodes(data));
+    };
 
     // Handle terminal resize
-    session.terminal.onResize.listen(
-      (size) {
-        session.pty.resize(size.$2, size.$1);
-      },
-    );
+    session.terminal.onResize = (width, height) {
+      session.pty.resize(height, width);
+    };
   }
 
   /// Dispose all sessions
