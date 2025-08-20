@@ -76,7 +76,8 @@ class TermuxSessionManager extends ChangeNotifier {
       env['PROOT_NO_SECCOMP'] = '1';
       env['PROOT_LOADER'] = '/proot/loader';
       env['PROOT_LOADER32'] = '/proot/loader32';
-      env['PROOT_TMP_DIR'] = '/tmp';
+      env['PROOT_TMP_DIR'] = em.tmpPath;
+      env['TMPDIR'] = em.tmpPath;
       // Explicitly unset LD_PRELOAD to avoid inherited preloads
       env['LD_PRELOAD'] = '';
     } catch (_) {}
