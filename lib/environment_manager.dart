@@ -568,9 +568,17 @@ class EnvironmentManager {
     List<String> shellArgs = const [],
   }) {
     final prootBinary = _selectProotBinary();
+    
+    // Force use of static build to avoid library dependency issues
+    String finalProotBinary = prootBinary;
+    if (!prootBinary.contains('static')) {
+      finalProotBinary = '$_prootPath/$_prootBinary';
+      print('EnvironmentManager: Forcing use of static proot binary: $finalProotBinary');
+    }
+    
     // On some Android devices, executing from app storage can be noexec.
     // Execute proot via the system linker to bypass mount exec restrictions.
-    List<String> launcher = [prootBinary];
+    List<String> launcher = [finalProotBinary];
     try {
       if (Platform.isAndroid) {
         String linker = '/system/bin/linker64';
@@ -580,19 +588,17 @@ class EnvironmentManager {
         }
         if (File(linker).existsSync()) {
           // Use linker only for dynamic builds; static builds fail with unexpected e_type
-          if (!prootBinary.contains('static')) {
-            launcher = [linker, prootBinary];
+          if (!finalProotBinary.contains('static')) {
+            launcher = [linker, finalProotBinary];
             print('EnvironmentManager: Using linker launcher: ' + linker);
           } else {
-            launcher = [prootBinary];
+            launcher = [finalProotBinary];
           }
         }
       }
     } catch (_) {}
-    // On some Android versions, direct exec may be blocked. We'll still try direct,
-    // and the session manager will fall back to `sh -lc` if exec fails.
     
-    // Build the proot command (more robust defaults)
+    // Build the proot command with enhanced library path
     final command = [
       ...launcher,
       '-S', rootfsPath,
@@ -618,7 +624,7 @@ class EnvironmentManager {
       'TERM=xterm-256color',
       'LANG=en_US.UTF-8',
       'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-      'LD_LIBRARY_PATH=/lib:/usr/lib:/usr/local/lib',
+      'LD_LIBRARY_PATH=/lib:/usr/lib:/usr/local/lib:${_prootPath}',
       'PROOT_NO_SECCOMP=1',
       'PROOT_LOADER=/proot/loader',
       'PROOT_LOADER32=/proot/loader32',
@@ -641,7 +647,7 @@ class EnvironmentManager {
       'TERM': 'xterm-256color',
       'LANG': 'en_US.UTF-8',
       'LC_ALL': 'en_US.UTF-8',
-      'LD_LIBRARY_PATH': '/lib:/usr/lib:/usr/local/lib',
+      'LD_LIBRARY_PATH': '/lib:/usr/lib:/usr/local/lib:${_prootPath}',
       'PROOT_NO_SECCOMP': '1',
       'PROOT_LOADER': '/proot/loader',
       'PROOT_LOADER32': '/proot/loader32',
@@ -709,8 +715,19 @@ class EnvironmentManager {
         return false;
       }
       
-      // Try running proot through the system shell
-      final result = await Process.run('sh', ['-c', '${prootFile.path} --help']);
+      // Check if libtalloc is available
+      final libtallocFile = File('${_prootPath}/libtalloc.so.2');
+      if (!await libtallocFile.exists()) {
+        print('EnvironmentManager: libtalloc.so.2 not found, attempting to re-extract...');
+        await _extractProotBinaries();
+      }
+      
+      // Set LD_LIBRARY_PATH to include proot directory
+      final env = Map<String, String>.from(Platform.environment);
+      env['LD_LIBRARY_PATH'] = '${_prootPath}:${env['LD_LIBRARY_PATH'] ?? ''}';
+      
+      // Try running proot through the system shell with proper library path
+      final result = await Process.run('sh', ['-c', 'LD_LIBRARY_PATH=${_prootPath} ${prootFile.path} --help'], environment: env);
       
       print('EnvironmentManager: Shell test result - exit code: ${result.exitCode}');
       if (result.exitCode == 0 || result.exitCode == 1) {
