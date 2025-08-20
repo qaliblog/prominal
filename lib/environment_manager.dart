@@ -430,7 +430,7 @@ class EnvironmentManager {
       if (await prootFile.exists()) {
         bool permissionsOk = false;
         
-        // Method 1: Try chmod
+        // Method 1: Try chmod (may fail on noexec mount)
         try {
           final result = await Process.run('chmod', ['700', prootFile.path]);
           if (result.exitCode == 0) {
@@ -464,14 +464,7 @@ class EnvironmentManager {
         }
         
         if (!permissionsOk) {
-          print('EnvironmentManager: Warning - proot binary permissions may not be set correctly');
-          // Try shell execution as fallback
-          try {
-            final shTest = await Process.run('sh', ['-c', '${prootFile.path} --help']);
-            print('EnvironmentManager: Shell exec test exit=${shTest.exitCode}');
-          } catch (e) {
-            print('EnvironmentManager: Shell exec test failed: $e');
-          }
+          print('EnvironmentManager: Warning - proot binary permissions may not be set correctly, using linker or shell wrapper at runtime');
         }
       }
       
@@ -573,58 +566,32 @@ class EnvironmentManager {
     List<String> shellArgs = const [],
   }) {
     final prootBinary = _selectProotBinary();
-    
-    // Force use of static build to avoid library dependency issues
-    String finalProotBinary = prootBinary;
-    if (!prootBinary.contains('static')) {
-      finalProotBinary = '$_prootPath/$_prootBinary';
-      print('EnvironmentManager: Forcing use of static proot binary: $finalProotBinary');
+    final isStatic = prootBinary.contains('static');
+    String linker = '/system/bin/linker64';
+    if (!File(linker).existsSync()) {
+      final alt = '/apex/com.android.runtime/bin/linker64';
+      if (File(alt).existsSync()) linker = alt;
     }
-    
-    // On some Android devices, executing from app storage can be noexec.
-    // Execute proot via the system linker to bypass mount exec restrictions.
-    List<String> launcher = [finalProotBinary];
-    try {
-      if (Platform.isAndroid) {
-        String linker = '/system/bin/linker64';
-        if (!File(linker).existsSync()) {
-          final alt = '/apex/com.android.runtime/bin/linker64';
-          if (File(alt).existsSync()) linker = alt;
-        }
-        if (File(linker).existsSync()) {
-          // Use linker only for dynamic builds; static builds fail with unexpected e_type
-          if (!finalProotBinary.contains('static')) {
-            launcher = [linker, finalProotBinary];
-            print('EnvironmentManager: Using linker launcher: ' + linker);
-          } else {
-            launcher = [finalProotBinary];
-          }
-        }
-      }
-    } catch (_) {}
-    
-    // Build the proot command with enhanced library path
-    final command = [
-      ...launcher,
-      '-S', rootfsPath,
-      '-0',
-      '-w', '/root',
-      '-b', '/dev',
-      '-b', '/dev/pts',
-      '-b', '/proc',
-      '-b', '/sys',
-      '-b', '/system',
-      '-b', '/vendor',
-      '-b', '/apex',
-      '-b', '$_tmpPath:/tmp',
-      '-b', '/data',
-      '-b', '/storage',
-      '-b', '/sdcard',
-      '-b', '/mnt',
-      '-b', '${_homePath}:/home',
-      '-b', '${_prootPath}:/proot',
-      '/usr/bin/env',
-      '-i',
+    final dynamicLauncher = (!isStatic && File(linker).existsSync())
+        ? '$linker ${_shellQuote(prootBinary)}'
+        : _shellQuote(prootBinary);
+
+    // Build common proot args (quoted for shell -c)
+    final binds = [
+      '/dev', '/dev/pts', '/proc', '/sys', '/system', '/vendor', '/apex',
+    ];
+    final bindArgs = [
+      for (final b in binds) '-b ${_shellQuote(b)}',
+      '-b ${_shellQuote('$_tmpPath:/tmp')}',
+      '-b ${_shellQuote('/data')}',
+      '-b ${_shellQuote('/storage')}',
+      '-b ${_shellQuote('/sdcard')}',
+      '-b ${_shellQuote('/mnt')}',
+      '-b ${_shellQuote('$_homePath:/home')}',
+      '-b ${_shellQuote('$_prootPath:/proot')}',
+    ].join(' ');
+
+    final envInside = [
       'HOME=/root',
       'TERM=xterm-256color',
       'LANG=en_US.UTF-8',
@@ -634,14 +601,43 @@ class EnvironmentManager {
       'PROOT_LOADER=/proot/loader',
       'PROOT_LOADER32=/proot/loader32',
       'PROOT_TMP_DIR=/tmp',
-      // On some Androids system libs preload; explicitly empty LD_PRELOAD
-      // No preloads in child; append none
       'LD_PRELOAD=',
-      shellPath,
-      ...shellArgs,
-    ];
-    
-    return command;
+    ].map(_shellQuote).join(' ');
+
+    final shellArgsQuoted = shellArgs.map(_shellQuote).join(' ');
+    final prootArgs = [
+      '-S ${_shellQuote(rootfsPath)}',
+      '-0',
+      '-w /root',
+      bindArgs,
+      '/usr/bin/env -i',
+      envInside,
+      _shellQuote(shellPath),
+      shellArgsQuoted,
+    ].join(' ');
+
+    // Launcher script: prefer dynamic via linker, fallback to static
+    final staticPath = _shellQuote('$_prootPath/$_prootBinary');
+    final ldPre = _shellQuote('${_prootPath}');
+    final launcherScript = [
+      'export LD_LIBRARY_PATH=$ldPre:${r'${LD_LIBRARY_PATH}'}',
+      'exec $dynamicLauncher $prootArgs || exec $staticPath $prootArgs',
+    ].join('; ');
+
+    if (Platform.isAndroid) {
+      // Execute through system shell to avoid direct exec restrictions
+      return ['/system/bin/sh', '-c', launcherScript];
+    }
+
+    // Non-Android: run directly
+    return [prootBinary, ...prootArgs.split(' ')];
+  }
+
+  String _shellQuote(String input) {
+    if (input.isEmpty) return "''";
+    // Simple POSIX single-quote escaping: close, escape single quote, reopen
+    if (!input.contains("'")) return "'" + input + "'";
+    return "'" + input.replaceAll("'", "'\\''") + "'";
   }
   
   /// Get environment variables for proot

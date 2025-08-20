@@ -70,6 +70,16 @@ class SessionManager extends ChangeNotifier {
     final sessionTitle = title ?? 'Terminal ${_sessions.length + 1}';
     final workingDir = workingDirectory ?? _environmentManager!.homePath;
     final env = environment ?? _getDefaultEnvironment();
+    // Ensure proot-related environment is present to avoid exec issues
+    try {
+      final em = _environmentManager!;
+      env['LD_LIBRARY_PATH'] = '/lib:/usr/lib:/usr/local/lib:${em.prootPath}:${env['LD_LIBRARY_PATH'] ?? ''}';
+      env['PROOT_NO_SECCOMP'] = '1';
+      env['PROOT_LOADER'] = '/proot/loader';
+      env['PROOT_LOADER32'] = '/proot/loader32';
+      env['PROOT_TMP_DIR'] = '/tmp';
+      env['LD_PRELOAD'] = '';
+    } catch (_) {}
 
     // Create terminal widget
     final terminal = Terminal(
@@ -94,9 +104,18 @@ class SessionManager extends ChangeNotifier {
     }
 
     // Start PTY
+    // If launching proot, wrap via system shell to avoid noexec issues
+    String execPath = executable;
+    List<String> execArgs = arguments;
+    if (executable.contains('/proot') || executable.contains('proot')) {
+      final joined = ([executable, ...arguments]).map((s) => _shellQuote(s)).join(' ');
+      execPath = '/system/bin/sh';
+      execArgs = ['-c', joined];
+    }
+
     final pty = await startPlatformPty(
-      executable,
-      arguments,
+      execPath,
+      execArgs,
       workingDirectory: workingDir,
       environment: env,
     );
