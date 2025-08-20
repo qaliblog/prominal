@@ -598,27 +598,12 @@ class EnvironmentManager {
       '-b ${_shellQuote('$_prootPath:/proot')}',
     ].join(' ');
 
-    final envInside = [
-      'HOME=/root',
-      'TERM=xterm-256color',
-      'LANG=en_US.UTF-8',
-      'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-      'LD_LIBRARY_PATH=/lib:/usr/lib:/usr/local/lib:/proot',
-      'PROOT_NO_SECCOMP=1',
-      'PROOT_LOADER=/proot/loader',
-      'PROOT_LOADER32=/proot/loader32',
-      'LD_PRELOAD=',
-    ].map(_shellQuote).join(' ');
-
     final shellArgsQuoted = shellArgs.map(_shellQuote).join(' ');
     final prootArgs = [
       '-S ${_shellQuote(rootfsPath)}',
       '-0',
       '-w /root',
       bindArgs,
-      '--',
-      '/usr/bin/env', '-i',
-      envInside,
       _shellQuote(shellPath),
       shellArgsQuoted,
     ].join(' ');
