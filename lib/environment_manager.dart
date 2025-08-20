@@ -139,6 +139,30 @@ class EnvironmentManager {
     final any = entries.firstWhere((p) => p.contains('proot'), orElse: () => staticPath);
     return any;
   }
+
+  /// Ensure dynamic (PIE) proot from assets/proot is installed if available
+  Future<void> ensureProotUpToDate() async {
+    try {
+      final bytes = await rootBundle.load('assets/proot');
+      final path = '$_prootPath/proot';
+      final f = File(path);
+      bool needsWrite = true;
+      if (await f.exists()) {
+        final stat = await f.stat();
+        if (stat.size == bytes.lengthInBytes) {
+          needsWrite = false;
+        }
+      }
+      if (needsWrite) {
+        await f.writeAsBytes(bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes));
+        try { await Process.run('chmod', ['700', f.path]); } catch (_) {}
+        print('EnvironmentManager: Installed/updated dynamic proot at ${f.path}');
+      }
+    } catch (e) {
+      // assets/proot not present; ignore
+      print('EnvironmentManager: No dynamic proot asset found or load failed: $e');
+    }
+  }
   
   /// Setup the complete environment
   Future<void> setupEnvironment() async {
@@ -158,6 +182,7 @@ class EnvironmentManager {
     try {
       _progressController.add(SetupProgress.stage('Extracting proot and libs'));
       await _extractProotAndLibs();
+      await ensureProotUpToDate();
       _progressController.add(SetupProgress.stage('Extracting rootfs'));
       await _extractRootfsWithProgress();
       _progressController.add(SetupProgress.stage('Applying permissions'));
