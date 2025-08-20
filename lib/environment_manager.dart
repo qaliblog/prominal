@@ -516,10 +516,16 @@ class EnvironmentManager {
         print('EnvironmentManager: Initial proot cmd will use ${_prootPath}/$_prootBinary');
         final rootfs = getComputedRootfsPath();
         print('EnvironmentManager: Computed rootfs path: ' + rootfs);
+        final shellPath = File('$rootfs/bin/bash').existsSync()
+            ? '/bin/bash'
+            : (File('$rootfs/bin/sh').existsSync() ? '/bin/sh' : '/usr/bin/env');
+        final shellArgs = (shellPath == '/usr/bin/env')
+            ? ['sh', '--login']
+            : ['--login'];
         return getProotCommandWithFallback(
           rootfsPath: rootfs,
-          shellPath: '/bin/bash',
-          shellArgs: ['--login'],
+          shellPath: shellPath,
+          shellArgs: shellArgs,
         );
       }
       // Fallback: host Android shell on non-arm64 devices/emulators.
