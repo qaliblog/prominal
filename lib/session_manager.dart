@@ -197,11 +197,11 @@ class SessionManager extends ChangeNotifier {
 
     // Terminal input -> PTY
     session.terminal.onOutput = (data) {
-      session.pty.write(String.fromCharCodes(data));
+      session.pty.write(data);
     };
 
     // Handle terminal resize
-    session.terminal.onResize = (width, height) {
+    session.terminal.onResize = (width, height, _, __) {
       session.pty.resize(height, width);
     };
   }
