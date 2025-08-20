@@ -41,6 +41,7 @@ dependencies:
   flutter_pty: ^0.4.0
   shared_preferences: ^2.2.3
   http: ^1.2.2
+  termux_view: ^0.1.0
 
 dev_dependencies:
   flutter_test:
