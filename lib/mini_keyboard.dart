@@ -22,13 +22,20 @@ class MiniKeyboard extends StatefulWidget {
 class _MiniKeyboardState extends State<MiniKeyboard> {
   /// Tracks the toggled state of the Control key.
   bool _isCtrlActive = false;
+  bool _isAltActive = false;
+  bool _isShiftActive = false;
 
   /// Handles sending key events to the terminal.
   ///
   /// It checks if the Ctrl key is active and passes that state
   /// along with the key press to the terminal controller.
   void _sendKey(TerminalKey key) {
-    widget.terminal.keyInput(key, ctrl: _isCtrlActive);
+    widget.terminal.keyInput(
+      key,
+      ctrl: _isCtrlActive,
+      alt: _isAltActive,
+      shift: _isShiftActive,
+    );
 
     // After a key is sent, we de-activate Ctrl for a more intuitive
     // single-press modifier experience, but this is a design choice.
@@ -63,6 +70,20 @@ class _MiniKeyboardState extends State<MiniKeyboard> {
             },
             // The key is visually highlighted when active.
             isToggled: _isCtrlActive,
+          ),
+          _buildKey(
+            label: 'ALT',
+            onTap: () {
+              setState(() => _isAltActive = !_isAltActive);
+            },
+            isToggled: _isAltActive,
+          ),
+          _buildKey(
+            label: 'SHIFT',
+            onTap: () {
+              setState(() => _isShiftActive = !_isShiftActive);
+            },
+            isToggled: _isShiftActive,
           ),
           _buildKey(label: 'TAB', onTap: () => _sendKey(TerminalKey.tab)),
           _buildKey(icon: Icons.arrow_back, onTap: () => _sendKey(TerminalKey.arrowLeft)),

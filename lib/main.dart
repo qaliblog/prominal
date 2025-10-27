@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:prominal/environment_manager.dart';
 import 'package:prominal/session_manager.dart';
 import 'package:prominal/terminal_page.dart';
+import 'package:prominal/workspace_page.dart';
+import 'package:prominal/settings_page.dart';
 import 'dart:async';
 
 void main() async {
@@ -68,11 +70,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool _isSetupInProgress = false;
   String? _setupError;
   Timer? _setupTimeoutTimer;
+  Timer? _startupFallbackTimer;
 
   @override
   void initState() {
     super.initState();
     _sessionManager = SessionManager.instance;
+    // If setup flag is present but rootfs is missing, clear flag to trigger setup.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await widget.environmentManager.ensureRootfsOrClearFlag();
+      if (!widget.environmentManager.isSetupComplete()) {
+        if (mounted) setState(() {});
+      }
+    });
 
     // Check if the one-time setup needs to be run.
     if (!widget.environmentManager.isSetupComplete()) {
@@ -81,6 +91,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // If setup is already done, create a normal session immediately unless disabled.
       if (widget.autoStartSession) {
         _createInitialSession();
+        // If no session appears shortly, fall back to host shell automatically
+        _startupFallbackTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted && !_sessionManager.hasSessions) {
+            print('HomePage: No session started, launching Android host shell fallback');
+            _sessionManager.createNewSession(
+              command: widget.environmentManager.getAndroidHostShellCommand(),
+              title: 'Android Shell',
+            );
+          }
+        });
       }
     }
     
@@ -112,20 +132,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       print("Prominal: Environment prepared, creating setup session...");
       
       // 2. Create a special terminal session that runs the bootstrap script.
-      // This session will close automatically when the script finishes.
+      // If we detect proot issues, fall back to the host Android shell to avoid hanging.
+      final setupCmd = widget.environmentManager.getInitialCommand();
+      final isProot = setupCmd.isNotEmpty && setupCmd.first.contains('proot');
       _sessionManager.createNewSession(
-        command: widget.environmentManager.getInitialCommand(),
+        command: isProot ? setupCmd : widget.environmentManager.getAndroidHostShellCommand(),
         title: 'Setup',
       );
       
       print("Prominal: Setup session created");
       
       // Start a timeout timer for the setup session
-      _setupTimeoutTimer = Timer(const Duration(minutes: 30), () {
+      _setupTimeoutTimer = Timer(const Duration(minutes: 5), () {
         if (_isSetupInProgress && mounted) {
           print("Prominal: Setup session timeout - session may be hanging");
           setState(() {
-            _setupError = "Setup session is taking too long (30+ minutes). The bootstrap script may be hanging. Try resetting the environment.";
+            _setupError = "Setup session is taking too long. Try Reset & Retry or open Android Shell from the empty state.";
             _isSetupInProgress = false;
           });
         }
@@ -187,17 +209,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     
     // Rebuild the UI to reflect the new list of sessions.
     // We also need to manage the TabController here.
+    // Maintain TabController only for TabBarView; we still keep it to page between sessions
     final sessionCount = _sessionManager.sessions.length;
     final newIndex = _sessionManager.sessions.indexOf(_sessionManager.activeSession!);
-    
-    // If the TabController exists and the number of tabs changed, dispose it.
     if (_tabController != null && _tabController!.length != sessionCount) {
       _tabController?.removeListener(_onTabChanged);
       _tabController?.dispose();
       _tabController = null;
     }
-    
-    // Create a new TabController if needed.
     if (_tabController == null && sessionCount > 0) {
       _tabController = TabController(
         initialIndex: newIndex,
@@ -206,12 +225,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       );
       _tabController!.addListener(_onTabChanged);
     }
-    
-    // Animate to the correct tab if the active session changed.
     if (_tabController != null && _tabController!.index != newIndex) {
       _tabController!.animateTo(newIndex);
     }
-    
+
     setState(() {}); // Trigger a rebuild.
   }
   
@@ -229,6 +246,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _tabController?.removeListener(_onTabChanged);
     _tabController?.dispose();
     _setupTimeoutTimer?.cancel();
+    _startupFallbackTimer?.cancel();
     super.dispose();
   }
 
@@ -238,29 +256,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       appBar: AppBar(
         title: const Text('prominal'),
         elevation: 0,
-        // The tab bar for switching between sessions.
-        bottom: _sessionManager.hasSessions && _tabController != null
-            ? TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                tabs: _sessionManager.sessions.map((session) {
-                  return Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(session.title),
-                        const SizedBox(width: 8),
-                        // A small 'x' button to close the tab.
-                        InkWell(
-                          onTap: () => _sessionManager.closeSession(session.id),
-                          child: const Icon(Icons.close, size: 16),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              )
-            : null,
+        actions: [
+          if (_sessionManager.hasSessions)
+            Builder(
+              builder: (ctx) => IconButton(
+                tooltip: 'Sessions',
+                icon: const Icon(Icons.view_sidebar),
+                onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+              ),
+            ),
+          IconButton(
+            tooltip: 'Environment Status',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () {
+              final status = widget.environmentManager.getEnvironmentStatus();
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Environment Status'),
+                  content: SingleChildScrollView(
+                    child: Text(status.entries.map((e) => '${e.key}: ${e.value}').join('\n')),
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              );
+            },
+          ),
+        ],
+        // Removed top TabBar; use right-side drawer like Termux for sessions
       ),
       // A floating action button to create new sessions with extra bottom padding.
       floatingActionButton: Padding(
@@ -270,8 +301,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           child: const Icon(Icons.add),
         ),
       ),
-      // The main content area.
+      // The main content area with a right-side drawer for session list like Termux.
       body: _buildBody(),
+      endDrawer: _buildSessionDrawer(),
+      endDrawerEnableOpenDragGesture: true,
+      drawerEdgeDragWidth: 24,
     );
   }
 
@@ -376,25 +410,72 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     // Show setup progress
     if (_isSetupInProgress) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text("Performing one-time setup..."),
-            SizedBox(height: 8),
-            Text(
-              "Extracting Debian rootfs (this may take 2-5 minutes)",
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+      return StreamBuilder(
+        stream: widget.environmentManager.progressStream,
+        builder: (context, snapshot) {
+          final data = snapshot.data;
+          String stageText = 'Setting up...';
+          double? progress;
+          String? detail;
+          if (data is SetupProgress) {
+            if (data.error != null) stageText = 'Error: ${data.error}';
+            else if (data.stage != null) stageText = data.stage!;
+            if (data.current != null && data.total != null && data.total! > 0) {
+              progress = data.current! / data.total!;
+            }
+            detail = data.detail;
+          }
+          final minimalReady = stageText == 'minimal-ready' || widget.environmentManager.isMinimalReady();
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  height: 8,
+                  child: LinearProgressIndicator(value: progress),
+                ),
+                const SizedBox(height: 12),
+                Text(stageText),
+                if (detail != null) ...[
+                  const SizedBox(height: 4),
+                  Text(detail!, style: const TextStyle(fontSize: 12, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+                const SizedBox(height: 12),
+                if (minimalReady) ...[
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Start Shell Now'),
+                    onPressed: () {
+                      setState(() { _isSetupInProgress = false; _setupError = null; });
+                      _sessionManager.createNewSession(
+                        command: widget.environmentManager.getInitialCommand(),
+                        title: 'Shell',
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.android),
+                    label: const Text('Start Android Shell (fallback)'),
+                    onPressed: () {
+                      setState(() { _isSetupInProgress = false; _setupError = null; });
+                      _sessionManager.createNewSession(
+                        command: widget.environmentManager.getAndroidHostShellCommand(),
+                        title: 'Android Shell',
+                      );
+                    },
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Text(
+                  'Rootfs: ${widget.environmentManager.getEnvironmentStatus()['rootfsExists'] == true ? 'present' : 'missing'}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
             ),
-            SizedBox(height: 8),
-            Text(
-              "Please be patient - the app may appear unresponsive during extraction",
-              style: TextStyle(fontSize: 10, color: Colors.orange),
-            ),
-          ],
-        ),
+          );
+        },
       );
     }
     
@@ -403,13 +484,90 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return TabBarView(
         controller: _tabController,
         children: _sessionManager.sessions.map((session) {
-          // Each tab contains a TerminalPage for that session.
-          return TerminalPage(key: ValueKey(session.id), session: session);
+          // Each tab shows the 4-pane workspace.
+          return WorkspacePage(key: ValueKey(session.id), session: session);
         }).toList(),
       );
     }
     
     // Default/fallback view.
-    return const Center(child: Text("Initializing session..."));
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('No active terminal session'),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            alignment: WrapAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                icon: const Icon(Icons.code),
+                label: const Text('Start Proot Shell'),
+                onPressed: () {
+                  _createInitialSession();
+                },
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.android),
+                label: const Text('Start Android Shell (fallback)'),
+                onPressed: () {
+                  _sessionManager.createNewSession(
+                    command: widget.environmentManager.getAndroidHostShellCommand(),
+                    title: 'Android Shell',
+                  );
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget? _buildSessionDrawer() {
+    if (!_sessionManager.hasSessions) return null;
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text('Sessions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _sessionManager.sessions.length,
+                itemBuilder: (context, index) {
+                  final s = _sessionManager.sessions[index];
+                  return ListTile(
+                    title: Text(s.title),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => _sessionManager.closeSession(s.id),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).maybePop();
+                      _tabController?.animateTo(index);
+                    },
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ElevatedButton.icon(
+                onPressed: _createInitialSession,
+                icon: const Icon(Icons.add),
+                label: const Text('New Session'),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
   }
 }

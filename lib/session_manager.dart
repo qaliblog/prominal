@@ -50,15 +50,28 @@ class SessionManager extends ChangeNotifier {
     String? title,
   }) async {
     print("SessionManager: Creating session with command: ${command.join(' ')}");
+    // Detailed environment diagnostics
+    try {
+      print("SessionManager: Platform: ${Platform.operatingSystem} ${Platform.version}");
+      print("SessionManager: HOME: ${Platform.environment['HOME']}");
+      print("SessionManager: USER: ${Platform.environment['USER']}");
+      print("SessionManager: PATH: ${Platform.environment['PATH']}");
+    } catch (_) {}
     
-    // If the first command is proot, try running it through shell as fallback
+    // If the first command is proot on Android, run via shell to avoid exec restrictions
     List<String> actualCommand = command;
-    if (command.first.contains('proot')) {
-      // Try direct execution first, but prepare shell fallback
-      print("SessionManager: Attempting proot session with direct execution");
+    if (command.isNotEmpty && command.first.contains('proot')) {
+      print("SessionManager: Detected proot invocation");
+      if (Platform.isAndroid) {
+        final joined = command.join(' ');
+        actualCommand = ['sh', '-lc', joined];
+        print("SessionManager: Routing proot via shell: ${actualCommand.join(' ')}");
+      } else {
+        print("SessionManager: Attempting proot session with direct execution");
+      }
     }
     
-    final bool isProotInvocation = actualCommand.first.contains('proot');
+    final bool isProotInvocation = command.isNotEmpty && command.first.contains('proot');
 
     // Environment differs on Android vs desktop
     final Map<String, String> env = Platform.isAndroid
@@ -84,14 +97,26 @@ class SessionManager extends ChangeNotifier {
             ? (Platform.environment['USERPROFILE'] ?? _envManager.homePath)
             : (Platform.environment['HOME'] ?? _envManager.homePath));
     
-    final pty = await startPlatformPty(
-      actualCommand.first,
-      actualCommand.length > 1 ? actualCommand.sublist(1) : [],
-      workingDirectory: cwd,
-      environment: env,
-    );
+    late final PlatformPty pty;
+    try {
+      pty = await startPlatformPty(
+        actualCommand.first,
+        actualCommand.length > 1 ? actualCommand.sublist(1) : [],
+        workingDirectory: cwd,
+        environment: env,
+      );
+    } catch (error) {
+      print("SessionManager: PTY start failed: ${error}");
+      // If direct exec fails with permission issues and we're invoking proot, try shell fallback immediately
+      if (isProotInvocation) {
+        await _createProotSessionWithShell(command);
+        return;
+      }
+      rethrow;
+    }
 
     final terminal = Terminal(maxLines: 10000);
+    terminal.write('Prominal: starting session...\r\n');
 
     // Decode the PTY's byte output into a String for the terminal.
     pty.out
@@ -111,6 +136,7 @@ class SessionManager extends ChangeNotifier {
     };
 
     terminal.onResize = (w, h, pw, ph) {
+      print('SessionManager: resize to cols=$w rows=$h');
       pty.resize(h, w);
     };
 
@@ -124,20 +150,50 @@ class SessionManager extends ChangeNotifier {
 
     pty.exitCode.then((code) async {
       print("SessionManager: Session ${sessionId} exited with code: ${code}");
+      if (code == 126) {
+        print("SessionManager: Exit 126 indicates permission problem (exec). Consider shell fallback.");
+      }
       final index = _sessions.indexWhere((s) => s.id == sessionId);
       if (index != -1) {
         final session = _sessions[index];
         session.terminal
-            .write('\r\n\r\n[Process completed with exit code: ${code}]');
-        session.title = '[Exited] ${session.title}';
+            .write('\r\n\r\n[Process completed with exit code: ${code}]\r\n');
+        // If there was no visible output, show command and env summary for debugging
+        session.terminal.write('Command: ${actualCommand.join(' ')}\r\n');
+        session.terminal.write('Env: TERM=${env['TERM']} HOME=${env['HOME']}\r\n');
+        session.title = '[Exited ${code}] ${session.title}';
         notifyListeners();
       }
       
-      // If proot failed with permission denied, try shell approach
-      if (code == -117 && command.first.contains('proot')) {
+      // If proot failed with permission denied or transport errors, try shell approach
+      if ((code == -117 || code == 126 || code == -6 || code == -120 || code == -121) && command.first.contains('proot')) {
         print("SessionManager: Proot failed, trying shell approach...");
-        await Future.delayed(const Duration(seconds: 1));
+        await Future.delayed(const Duration(milliseconds: 400));
         await _createProotSessionWithShell(command);
+        return;
+      }
+      // If all else fails or quick-exit persists, try host Android shell as last resort
+      if ((code == -120 || code == -121 || code == 126) && Platform.isAndroid) {
+        print('SessionManager: Falling back to host Android shell');
+        await Future.delayed(const Duration(milliseconds: 300));
+        await createNewSession(
+          command: _envManager.getAndroidHostShellCommand(),
+          title: 'Android Shell',
+        );
+        return;
+      }
+      // If login shell exits immediately, try a simpler /bin/sh
+      if ((code == 0 || code == 1) && (title == null || title == 'Shell')) {
+        print('SessionManager: Login shell exited quickly; trying /bin/sh -l');
+        await Future.delayed(const Duration(milliseconds: 300));
+        await createNewSession(
+          command: _envManager.getProotCommandWithFallback(
+            rootfsPath: _envManager.getComputedRootfsPath(),
+            shellPath: '/bin/sh',
+            shellArgs: ['-l'],
+          ),
+          title: 'Shell (sh)',
+        );
       }
     }).catchError((error) {
       print("SessionManager: Session ${sessionId} error: ${error}");
@@ -147,6 +203,7 @@ class SessionManager extends ChangeNotifier {
     _activeSessionIndex = _sessions.length - 1;
 
     print("Created new session (ID: ${sessionId}) with command: ${actualCommand.join(' ')}");
+    terminal.write('Command: ${actualCommand.join(' ')}\r\nWorkingDir: ${cwd}\r\n');
     notifyListeners();
   }
   
@@ -155,7 +212,7 @@ class SessionManager extends ChangeNotifier {
     print("SessionManager: Creating proot session with shell fallback");
     
     // Convert the command to run through shell
-    final shellCommand = ['sh', '-c', originalCommand.join(' ')];
+    final shellCommand = ['sh', '-lc', originalCommand.join(' ')];
     
     final pty = await startPlatformPty(
       shellCommand.first,
@@ -216,6 +273,7 @@ class SessionManager extends ChangeNotifier {
     _activeSessionIndex = _sessions.length - 1;
 
     print("Created shell session (ID: ${sessionId})");
+    terminal.write('Shell fallback command: ${shellCommand.join(' ')}\r\n');
     notifyListeners();
   }
 

@@ -78,7 +78,8 @@ class PathProviderNative {
   static Future<String> getExecutableCacheDirectoryAsync() async {
     if (Platform.isAndroid) {
       const packageName = 'com.prominal';
-      final base = '/data/user/0/$packageName/code_cache/prominal';
+      // Prefer files dir as some devices mount code_cache noexec
+      final base = '/data/user/0/$packageName/files/proot-bin';
       final dir = Directory(base);
       if (!await dir.exists()) {
         await dir.create(recursive: true);
